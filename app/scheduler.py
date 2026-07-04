@@ -10,6 +10,7 @@ scheduler = AsyncIOScheduler()
 def start_scheduler():
     """Initialize and start the APScheduler with all jobs."""
     from app.odds_ingestion import run_odds_fetch
+    from app.retrain import scheduled_retrain
 
     # Hourly odds fetch
     scheduler.add_job(
@@ -21,25 +22,18 @@ def start_scheduler():
         next_run_time=None,  # Don't run immediately on startup
     )
 
-    # Daily model retraining trigger (placeholder — ML Engineer implements the actual job)
+    # Daily model retraining — calls the full retraining pipeline
     scheduler.add_job(
-        _trigger_model_retraining,
+        scheduled_retrain,
         trigger=IntervalTrigger(hours=settings.model_retrain_interval_hours),
         id="daily_model_retrain",
-        name="Trigger model retraining pipeline",
+        name="Run model retraining pipeline",
         replace_existing=True,
         next_run_time=None,
     )
 
     scheduler.start()
-    print("[scheduler] Started APScheduler with hourly odds fetch and daily retrain trigger.")
-
-
-async def _trigger_model_retraining():
-    """Placeholder: signals the ML pipeline to retrain.
-    The ML Engineer will wire this up to the actual training pipeline.
-    """
-    print("[scheduler] Model retraining triggered — pipeline integration pending.")
+    print("[scheduler] Started APScheduler with hourly odds fetch and daily retrain pipeline.")
 
 
 async def trigger_odds_fetch_now():
