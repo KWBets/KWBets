@@ -10,7 +10,6 @@ scheduler = AsyncIOScheduler()
 def start_scheduler():
     """Initialize and start the APScheduler with all jobs."""
     from app.odds_ingestion import run_odds_fetch
-    from app.retrain import scheduled_retrain
 
     # Hourly odds fetch
     scheduler.add_job(
@@ -22,22 +21,46 @@ def start_scheduler():
         next_run_time=None,  # Don't run immediately on startup
     )
 
-    # Daily model retraining — calls the full retraining pipeline
+    # Daily model retraining
     scheduler.add_job(
-        scheduled_retrain,
+        run_daily_retrain,
         trigger=IntervalTrigger(hours=settings.model_retrain_interval_hours),
         id="daily_model_retrain",
-        name="Run model retraining pipeline",
+        name="Retrain ML model on accumulated outcomes + regenerate picks",
         replace_existing=True,
         next_run_time=None,
     )
 
     scheduler.start()
-    print("[scheduler] Started APScheduler with hourly odds fetch and daily retrain pipeline.")
+    print(f"[scheduler] Started APScheduler: hourly odds fetch + full EV chain, daily model retrain ({settings.model_retrain_interval_hours}h interval).")
+
+
+async def run_daily_retrain():
+    """Retrain the ML model on accumulated outcomes, then regenerate all picks."""
+    from app.database import SessionLocal
+    from app.train import run_training_pipeline
+    from app.ev import run_ev_pipeline
+
+    print("[scheduler] Daily retrain started: retraining model on new outcomes...")
+
+    db = SessionLocal()
+    try:
+        version = run_training_pipeline(db)
+        if version:
+            print(f"[scheduler] Model retrained: {version}")
+
+        # Regenerate picks with the fresh model
+        from app.models import ModelRegistry, ValueBet
+        bets = run_ev_pipeline(db)
+        print(f"[scheduler] Regenerated {bets} value bets with model {version}")
+    except Exception as e:
+        print(f"[scheduler] Retrain error: {e}", exc_info=True)
+    finally:
+        db.close()
 
 
 async def trigger_odds_fetch_now():
-    """Manually trigger an odds fetch (called from API endpoint)."""
+    """Manually trigger an odds fetch + full pipeline (called from API endpoint)."""
     from app.odds_ingestion import run_odds_fetch
     result = await run_odds_fetch()
     return result

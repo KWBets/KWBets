@@ -280,7 +280,11 @@ async def build_processed_features(db: Session) -> int:
 
 
 async def run_odds_fetch(api_key: Optional[str] = None) -> dict:
-    """Full pipeline: fetch odds from API, store in DB, build features."""
+    """Full pipeline: fetch odds → store → build features → batch predictions → EV pipeline.
+
+    After every odds fetch, the ML predictions and value bets are regenerated
+    so the /predictions endpoint always reflects the latest market data.
+    """
     start = time.time()
     api_key = api_key or settings.odds_api_key
 
@@ -297,8 +301,33 @@ async def run_odds_fetch(api_key: Optional[str] = None) -> dict:
 
     db = SessionLocal()
     try:
+        # Step 1: Store raw odds
         stored = await store_odds(events, db)
+
+        # Step 2: Build processed features from latest odds
         features = await build_processed_features(db)
+
+        # Step 3: Run batch predictions through the active ML model
+        from app.train import load_active_model, run_batch_predictions
+        import uuid
+        model = load_active_model(db)
+        if model is not None:
+            from app.models import ModelRegistry
+            active = db.query(ModelRegistry).filter(ModelRegistry.is_active == True).first()
+            if active:
+                run_id = uuid.uuid4().hex
+                predictions = run_batch_predictions(db, model, active.model_version, run_id)
+            else:
+                predictions = 0
+        else:
+            predictions = 0
+
+        # Step 4: Run EV pipeline to generate value bets
+        from app.ev import run_ev_pipeline
+        value_bets = run_ev_pipeline(db)
+
+        # Step 5: Clear old pipeline data before inserting fresh (done inside each function)
+        db.commit()
     finally:
         db.close()
 
@@ -307,8 +336,10 @@ async def run_odds_fetch(api_key: Optional[str] = None) -> dict:
 
     return {
         "status": "success",
-        "message": f"Fetched odds for {len(sports_with_data)} sports, stored {stored} rows, built {features} features.",
+        "message": f"Fetched odds for {len(sports_with_data)} sports, stored {stored} rows, built {features} features, {predictions} predictions, {value_bets} value bets.",
         "sports_fetched": sports_with_data,
         "total_odds_stored": stored,
+        "total_predictions": predictions,
+        "total_value_bets": value_bets,
         "fetch_duration_seconds": round(elapsed, 2),
     }
