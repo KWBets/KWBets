@@ -18,12 +18,56 @@ async def lifespan(app: FastAPI):
     print(f"[startup] Initializing {settings.app_name}...")
     init_db()
     print("[startup] Database tables created.")
+
+    # Auto-seed if database is empty (first Railway deploy, fresh DB)
+    _auto_bootstrap()
+
     start_scheduler()
     print("[startup] Scheduler started.")
     yield
     # Shutdown
     shutdown_scheduler()
     print("[shutdown] Scheduler stopped.")
+
+
+def _auto_bootstrap():
+    """Seed historical data + train model + generate value bets on first boot.
+    
+    On Railway deploy the database starts empty. This auto-detects that
+    and bootstraps the full pipeline so the API returns picks immediately.
+    """
+    from app.database import SessionLocal
+    from app.models import ProcessedFeatures
+
+    db = SessionLocal()
+    try:
+        count = db.query(ProcessedFeatures).count()
+        if count > 0:
+            print(f"[auto_bootstrap] Database already populated ({count} features). Skipping seed.")
+            return
+
+        print("[auto_bootstrap] Empty database detected. Running bootstrap pipeline...")
+
+        # 1. Seed historical data (creates ProcessedFeatures + ValueBets + PickOutcomes)
+        import seed_historical
+        seed_historical.seed_inseason_games(db, num_games=350)
+        seed_historical.seed_futures_markets(db, num_entries=250)
+
+        # 2. Train XGBoost model on seeded outcomes
+        from app.train import run_training_pipeline
+        version = run_training_pipeline(db)
+        if version:
+            print(f"[auto_bootstrap] Trained model: {version}")
+
+        # 4. Generate value bets
+        from app.ev import run_ev_pipeline
+        bet_count = run_ev_pipeline(db)
+        print(f"[auto_bootstrap] Bootstrap complete — {bet_count} value bets generated.")
+
+    except Exception as e:
+        print(f"[auto_bootstrap] Error during bootstrap: {e}", exc_info=True)
+    finally:
+        db.close()
 
 
 app = FastAPI(
