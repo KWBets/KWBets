@@ -1,0 +1,13 @@
+{
+  "train_roc_auc": 0.9807,
+  "test_roc_auc": 0.6698,
+  "accuracy": 0.6356,
+  "precision": 0.5357,
+  "recall": 0.6383,
+  "f1_score": 0.5825,
+  "log_loss": 0.6826,
+  "brier_score": 0.2395,
+  "train_samples": 468,
+  "test_samples": 118,
+  "home_win_rate": 0.39419795221843
+}

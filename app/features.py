@@ -232,8 +232,18 @@ def build_enhanced_features(db: Session, lookback_days: int = 90) -> int:
 
     records = []
     for r in raw_rows:
+        # Extract event_id from the raw odds ID format.
+        # Format: seed_{sport_key}_{home[:3]}_{away[:3]}_{count}_{bookmaker}_{market}_{outcome_name}
+        # The event_id is the first 5 underscore-delimited components.
+        id_parts = r.id.split("_") if "_" in r.id else [r.id]
+        if len(id_parts) >= 5:
+            # event_id = first 5 parts: seed_sportkey_home_away_count
+            event_id = "_".join(id_parts[:5])
+        else:
+            event_id = r.id
+
         records.append({
-            "_event_id": r.id.split("_")[0] if "_" in r.id else r.id,
+            "_event_id": event_id,
             "sport": r.sport,
             "sport_key": r.sport_key,
             "commence_time": r.commence_time,
