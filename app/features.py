@@ -225,7 +225,13 @@ def build_enhanced_features(db: Session, lookback_days: int = 90) -> int:
     logger.info("Building enhanced features...")
 
     # 1. Load raw odds into a DataFrame for analysis
-    raw_rows = db.query(RawOdds).all()
+    # Exclude outrights/futures: market_key != 'outrights' and outcome_name != 'Field'
+    raw_rows = (
+        db.query(RawOdds)
+        .filter(RawOdds.market_key != "outrights")
+        .filter(RawOdds.outcome_name != "Field")
+        .all()
+    )
     if not raw_rows:
         logger.info("No raw odds data to process.")
         return 0

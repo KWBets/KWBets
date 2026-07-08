@@ -1,6 +1,6 @@
 """API router for predictions (value bets) and parlays."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -31,8 +31,20 @@ async def get_predictions(
     sort_by: str = Query("edge_percentage", pattern="^(edge_percentage|expected_value|confidence_score)$"),
     db: Session = Depends(get_db),
 ):
-    """Get value bets sorted by expected value."""
-    query = db.query(ValueBet).filter(ValueBet.status == "pending")
+    """Get upcoming value bets, deduplicated by matchup, sorted by EV.
+
+    Only returns picks with commence_time within the next 14 days
+    (filters out distant futures).
+    """
+    now = datetime.now(timezone.utc)
+    fourteen_days = now + timedelta(days=14)
+
+    # Base query: only upcoming games (within 14 days), pending status
+    query = db.query(ValueBet).filter(
+        ValueBet.status == "pending",
+        ValueBet.commence_time > now,
+        ValueBet.commence_time <= fourteen_days,
+    )
 
     if sport:
         query = query.filter(ValueBet.sport_key == sport)
@@ -41,15 +53,28 @@ async def get_predictions(
     if min_edge > 0:
         query = query.filter(ValueBet.edge_percentage >= min_edge)
 
-    # Sort
-    sort_col = getattr(ValueBet, sort_by, ValueBet.edge_percentage)
-    query = query.order_by(desc(sort_col)).limit(limit)
-
+    # Fetch all matching rows (limit is applied after dedup)
+    sort_col = getattr(ValueBet, sort_by, ValueBet.expected_value)
+    query = query.order_by(desc(ValueBet.expected_value))
     rows = query.all()
 
+    # Deduplicate: for each (home_team, away_team) matchup, keep the pick with highest expected_value
+    seen = {}
+    for r in rows:
+        key = (r.home_team, r.away_team, r.market_type)
+        if key not in seen or r.expected_value > seen[key].expected_value:
+            seen[key] = r
+
+    # Sort deduplicated results by the requested sort field
+    deduped = list(seen.values())
+    deduped.sort(key=lambda r: getattr(r, sort_by, r.expected_value), reverse=True)
+
+    # Apply limit after dedup
+    deduped = deduped[:limit]
+
     return PredictionsListResponse(
-        count=len(rows),
-        predictions=[ValueBetResponse.model_validate(r) for r in rows],
+        count=len(deduped),
+        predictions=[ValueBetResponse.model_validate(r) for r in deduped],
     )
 
 

@@ -85,15 +85,28 @@ async def fetch_odds_for_sport(
 
 
 async def fetch_all_odds(api_key: Optional[str] = None) -> list[dict]:
-    """Fetch odds for all supported sports. Returns list of raw event dicts."""
+    """Fetch odds for all supported sports. Returns list of raw event dicts.
+
+    Excludes futures/outright markets: any sport key containing 'winner',
+    'championship', or ending in '_futures' is skipped.
+    """
     key = api_key or settings.odds_api_key
     if not key or key == "your_odds_api_key_here":
         print("[odds] No valid ODDS_API_KEY configured — using demo/seed data")
         return []
 
+    # Futures/outright exclusion patterns
+    import re
+    _futures_pattern = re.compile(r"(winner|championship|_futures)", re.IGNORECASE)
+
     all_events = []
     async with httpx.AsyncClient() as client:
         for sport in settings.supported_sports:
+            # Skip futures/outrights markets
+            if _futures_pattern.search(sport):
+                print(f"[odds] Skipping futures market: {sport}")
+                continue
+
             events = await fetch_odds_for_sport(client, sport, key)
             for ev in events:
                 ev["_sport_key"] = sport
@@ -156,7 +169,11 @@ async def store_odds(events: list[dict], db: Session) -> int:
 
 
 async def build_processed_features(db: Session) -> int:
-    """Aggregate raw odds into processed features for model training."""
+    """Aggregate raw odds into processed features for model training.
+
+    Filters out futures/outrights: rows where market_key is 'outrights' or
+    outcome_name is 'Field' are excluded.
+    """
     from sqlalchemy import text
 
     # Clear existing features and rebuild
@@ -165,6 +182,8 @@ async def build_processed_features(db: Session) -> int:
     # Group by event and market, compute averages
     rows = (
         db.query(RawOdds)
+        .filter(RawOdds.market_key != "outrights")
+        .filter(RawOdds.outcome_name != "Field")
         .all()
     )
 
