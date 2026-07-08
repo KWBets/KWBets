@@ -225,11 +225,12 @@ def build_enhanced_features(db: Session, lookback_days: int = 90) -> int:
     logger.info("Building enhanced features...")
 
     # 1. Load raw odds into a DataFrame for analysis
-    # Exclude outrights/futures: market_key != 'outrights' and outcome_name != 'Field'
+    # Exclude: outrights/futures (market_key), Field outcomes, and seed_ synthetic records
     raw_rows = (
         db.query(RawOdds)
         .filter(RawOdds.market_key != "outrights")
         .filter(RawOdds.outcome_name != "Field")
+        .filter(~RawOdds.id.like("seed_%"))
         .all()
     )
     if not raw_rows:

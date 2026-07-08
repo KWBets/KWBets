@@ -184,6 +184,7 @@ async def build_processed_features(db: Session) -> int:
         db.query(RawOdds)
         .filter(RawOdds.market_key != "outrights")
         .filter(RawOdds.outcome_name != "Field")
+        .filter(~RawOdds.id.like("seed_%"))
         .all()
     )
 

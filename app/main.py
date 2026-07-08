@@ -35,15 +35,30 @@ def _auto_bootstrap():
     
     On Railway deploy the database starts empty. This auto-detects that
     and bootstraps the full pipeline so the API returns picks immediately.
+
+    CRITICAL: Never runs if ANY real (non-seed) raw odds exist. Once real
+    odds data has been fetched from The Odds API, seeding is permanently skipped.
     """
     from app.database import SessionLocal
-    from app.models import ProcessedFeatures
+    from app.models import RawOdds
+    from sqlalchemy import text
 
     db = SessionLocal()
     try:
-        count = db.query(ProcessedFeatures).count()
-        if count > 0:
-            print(f"[auto_bootstrap] Database already populated ({count} features). Skipping seed.")
+        # Check if raw odds exists from a live API fetch (non-seed rows)
+        total_raw = db.query(RawOdds).count()
+        seed_raw = db.execute(text("SELECT COUNT(*) FROM raw_odds WHERE id LIKE 'seed_%'")).scalar()
+        real_raw = total_raw - seed_raw
+
+        if real_raw > 0:
+            print(f"[auto_bootstrap] Real odds data exists ({real_raw} rows). Skipping seed permanently.")
+            return
+
+        # Also skip if ProcessedFeatures already populated (safe guard)
+        from app.models import ProcessedFeatures
+        feat_count = db.query(ProcessedFeatures).count()
+        if feat_count > 0:
+            print(f"[auto_bootstrap] Database already populated ({feat_count} features). Skipping seed.")
             return
 
         print("[auto_bootstrap] Empty database detected. Running bootstrap pipeline...")
