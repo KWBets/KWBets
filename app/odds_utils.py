@@ -7,6 +7,21 @@ from sqlalchemy.orm import Session
 from app.models import RawOdds, ValueBet
 
 
+def extract_event_hash(event_id: str) -> str:
+    """Extract the raw event hash from a compound event_id.
+
+    ValueBet event_ids include the bookmaker, market, and team as a suffix
+    (e.g. '01615d9573ef1e5aa8c09eb32a4a983b_ballybet_h2h_Ipswich Town').
+    For cross-bookmaker best-odds lookup we only need the leading hex hash.
+
+    Returns the first underscore-delimited segment, or the full string if
+    no underscore is found.
+    """
+    if not event_id:
+        return ""
+    return event_id.split("_")[0]
+
+
 def get_best_odds_for_outcome(
     db: Session,
     event_id: str,
@@ -62,12 +77,17 @@ def get_best_odds_for_value_bet(
     max_age_hours: int = 168,
     max_price: float = 50.0,
 ) -> Optional[dict]:
-    """Get the best available odds for a given ValueBet row."""
+    """Get the best available odds for a given ValueBet row.
+
+    Uses the event hash (first underscore segment of event_id) to match
+    across all bookmakers, so the result reflects the true best price.
+    """
     outcome_name = value_bet.team
+    event_hash = extract_event_hash(value_bet.event_id)
 
     return get_best_odds_for_outcome(
         db=db,
-        event_id=value_bet.event_id,
+        event_id=event_hash,
         market_key=value_bet.market_type,
         outcome_name=outcome_name,
         max_age_hours=max_age_hours,
@@ -85,21 +105,21 @@ def get_consensus_implied_prob(
     """Compute the median implied probability across all bookmakers
     for a given event + market.
 
-    Filters:
-      - max_age_hours: only consider odds fetched within this many hours
-      - Only pre-game lines (commence_time in the future)
-      - Only bettable odds (1.10 - 15.0 range)
+    Uses the event hash (first underscore segment) to match across
+    all bookmakers. Also filters out events with commence_time in the
+    past and odds outside the 1.10-15.0 bettable range.
 
     Returns the median implied probability as a percentage (0-100),
     or None if no data found.
     """
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=max_age_hours)
+    event_hash = extract_event_hash(event_id)
 
     rows = (
         db.query(RawOdds.outcome_price, RawOdds.outcome_name)
         .filter(
-            RawOdds.id.like(f"{event_id}%"),
+            RawOdds.id.like(f"{event_hash}%"),
             RawOdds.market_key == market_key,
             RawOdds.fetched_at >= cutoff,
             RawOdds.commence_time > now,
