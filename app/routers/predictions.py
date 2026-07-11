@@ -71,12 +71,31 @@ async def get_games(db: Session = Depends(get_db)):
         # Use first row for metadata
         first = odds_rows[0]
 
-        # Group outcomes by name, find best price per name
+        # Group outcomes by name, find best price per name,
+        # and collect all bookmaker prices for the all_odds list
         outcome_best: dict[str, tuple[float, str]] = {}
+        outcome_all: dict[str, dict[str, float]] = {}
         for r in odds_rows:
             name = r.outcome_name
+            # Track best
             if name not in outcome_best or r.outcome_price > outcome_best[name][0]:
                 outcome_best[name] = (r.outcome_price, r.bookmaker_title)
+            # Track all — deduplicate by bookmaker within each outcome
+            if name not in outcome_all:
+                outcome_all[name] = {}
+            # If this bookmaker already has a price, keep the higher one
+            if r.bookmaker_title not in outcome_all[name] or r.outcome_price > outcome_all[name][r.bookmaker_title]:
+                outcome_all[name][r.bookmaker_title] = r.outcome_price
+
+        # Build per-outcome all_odds lists, sorted by price desc, capped at 6
+        outcome_all_odds: dict[str, list[dict]] = {}
+        for name, bookmakers in outcome_all.items():
+            sorted_odds = sorted(
+                [{"bookmaker": bm, "price": round(price, 2)} for bm, price in bookmakers.items()],
+                key=lambda x: x["price"],
+                reverse=True,
+            )
+            outcome_all_odds[name] = sorted_odds[:6]
 
         # Compute per-outcome consensus implied probability
         # by collecting all prices for each outcome_name across bookmakers
@@ -103,6 +122,7 @@ async def get_games(db: Session = Depends(get_db)):
                 price=round(price, 2),
                 best_odds_bookmaker=bookmaker,
                 consensus_implied_prob=_median_implied(outcome_prices.get(name, [])),
+                all_odds=outcome_all_odds.get(name, []),
             )
             for name, (price, bookmaker) in outcome_best.items()
         ]
