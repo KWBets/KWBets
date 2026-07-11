@@ -57,7 +57,7 @@ async def fetch_odds_for_sport(
     client: httpx.AsyncClient,
     sport: str,
     api_key: str,
-    regions: str = "us,us2,uk",
+    regions: str = "us,us2",
     markets: str = "h2h,spreads,totals",
 ) -> list[dict]:
     """Fetch odds for a single sport from The Odds API."""

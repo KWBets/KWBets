@@ -67,15 +67,21 @@ async def get_games(db: Session = Depends(get_db)):
         by_event[event_hash].append(r)
 
     games = []
+    us_keys = set(settings.us_bookmakers)
     for event_hash, odds_rows in by_event.items():
+        # Filter to US bookmakers only
+        us_rows = [r for r in odds_rows if r.bookmaker_key in us_keys]
+        if not us_rows:
+            continue  # skip events with no US bookmaker coverage
+
         # Use first row for metadata
-        first = odds_rows[0]
+        first = us_rows[0]
 
         # Group outcomes by name, find best price per name,
         # and collect all bookmaker prices for the all_odds list
         outcome_best: dict[str, tuple[float, str]] = {}
         outcome_all: dict[str, dict[str, float]] = {}
-        for r in odds_rows:
+        for r in us_rows:
             name = r.outcome_name
             # Track best
             if name not in outcome_best or r.outcome_price > outcome_best[name][0]:
@@ -97,10 +103,9 @@ async def get_games(db: Session = Depends(get_db)):
             )
             outcome_all_odds[name] = sorted_odds[:6]
 
-        # Compute per-outcome consensus implied probability
-        # by collecting all prices for each outcome_name across bookmakers
+        # Compute per-outcome consensus implied probability from US books only
         outcome_prices: dict[str, list[float]] = {}
-        for r in odds_rows:
+        for r in us_rows:
             name = r.outcome_name
             if name not in outcome_prices:
                 outcome_prices[name] = []

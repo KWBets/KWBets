@@ -54,6 +54,14 @@ class Settings(BaseSettings):
         "show_model_ev": False,  # Hide model edge/EV by default
     }
 
+    # US-only sportsbook allowlist — filters out UK exchanges and offshore books
+    # Env override: comma-separated list via US_BOOKMAKERS env var
+    us_bookmakers: list[str] = [
+        "draftkings", "fanduel", "betmgm", "betrivers", "betus",
+        "bovada", "betonlineag", "lowvig", "ballybet", "espnbet",
+        "hardrockbet", "betparx", "mybookieag", "fliff", "betway",
+    ]
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
