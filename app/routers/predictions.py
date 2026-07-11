@@ -116,11 +116,13 @@ async def get_predictions(
     now = datetime.now(timezone.utc)
     fourteen_days = now + timedelta(days=14)
 
-    # Base query: only upcoming games (within 14 days), pending status
+    # Base query: only upcoming games (within 14 days), pending status, sane odds
     query = db.query(ValueBet).filter(
         ValueBet.status == "pending",
         ValueBet.commence_time > now,
         ValueBet.commence_time <= fourteen_days,
+        ValueBet.odds >= 1.10,
+        ValueBet.odds <= 15.0,
     )
 
     if sport:
@@ -159,12 +161,35 @@ async def get_predictions(
 
 
 @router.get("/predictions/{prediction_id}", response_model=ValueBetResponse, tags=["Predictions"])
-async def get_prediction(prediction_id: int, db: Session = Depends(get_db)):
-    """Get a single value bet by ID."""
+async def get_prediction(
+    prediction_id: int,
+    show_ev: bool = Query(False, description="Show model EV/edge data"),
+    db: Session = Depends(get_db),
+):
+    """Get a single value bet by ID.
+
+    Returns 404 if not found. Returns 400 if the event is in-play
+    or odds are outside the bettable range (1.10-15.0).
+    """
     bet = db.query(ValueBet).filter(ValueBet.id == prediction_id).first()
     if not bet:
         raise HTTPException(status_code=404, detail="Prediction not found")
-    return ValueBetResponse.model_validate(bet)
+
+    # Validate: reject if in-play or odds out of bounds
+    now = datetime.now(timezone.utc)
+    if bet.commence_time <= now:
+        raise HTTPException(
+            status_code=400,
+            detail="This event is already in-play or has finished",
+        )
+    if bet.odds < 1.10 or bet.odds > 15.0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Odds ({bet.odds}) are outside the bettable range (1.10-15.0)",
+        )
+
+    effective_show_ev = show_ev or settings.feature_flags.get("show_model_ev", False)
+    return _build_value_bet_response(bet, db, effective_show_ev)
 
 
 @router.get("/parlays/suggestions", response_model=list[ParlaySuggestion], tags=["Parlays"])
@@ -175,12 +200,16 @@ async def get_parlay_suggestions(
     db: Session = Depends(get_db),
 ):
     """Generate AI parlay suggestions from uncorrelated high-value legs."""
+    now = datetime.now(timezone.utc)
     query = (
         db.query(ValueBet)
         .filter(
             ValueBet.status == "pending",
+            ValueBet.commence_time > now,
             ValueBet.confidence_tier.in_(["high", "medium"]),
             ValueBet.edge_percentage >= min_edge,
+            ValueBet.odds >= 1.10,
+            ValueBet.odds <= 15.0,
         )
         .order_by(desc(ValueBet.edge_percentage))
     )
@@ -264,6 +293,7 @@ async def get_parlay_suggestions(
 @router.post("/parlays/build", response_model=ParlayBuildResponse, tags=["Parlays"])
 async def build_parlay(request: ParlayBuildRequest, db: Session = Depends(get_db)):
     """Calculate combined odds and edge for a custom parlay."""
+    now = datetime.now(timezone.utc)
     legs = db.query(ValueBet).filter(ValueBet.id.in_(request.leg_ids)).all()
 
     if len(legs) < 2:
@@ -279,6 +309,19 @@ async def build_parlay(request: ParlayBuildRequest, db: Session = Depends(get_db
             status_code=400,
             detail="Parlay contains legs from the same event — correlated legs increase risk",
         )
+
+    # Validate each leg: no in-play events, sane odds
+    for leg in legs:
+        if leg.commence_time <= now:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Leg {leg.id} ({leg.home_team} vs {leg.away_team}) is already in-play or finished",
+            )
+        if leg.odds < 1.10 or leg.odds > 15.0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Leg {leg.id} has odds ({leg.odds}) outside the bettable range (1.10-15.0)",
+            )
 
     combined_odds = 1.0
     combined_model_prob = 1.0
@@ -310,9 +353,15 @@ async def get_props(
     """Get player prop value bets. (Player props require special API access.)"""
     # For now, return standard value bets as stand-in for props
     # Player props will be added once The Odds API provides them
+    now = datetime.now(timezone.utc)
     query = (
         db.query(ValueBet)
-        .filter(ValueBet.status == "pending")
+        .filter(
+            ValueBet.status == "pending",
+            ValueBet.commence_time > now,
+            ValueBet.odds >= 1.10,
+            ValueBet.odds <= 15.0,
+        )
         .order_by(desc(ValueBet.edge_percentage))
         .limit(limit)
     )

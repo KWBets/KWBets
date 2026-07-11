@@ -12,7 +12,7 @@ def get_best_odds_for_outcome(
     event_id: str,
     market_key: str,
     outcome_name: str,
-    max_age_hours: int = 6,
+    max_age_hours: int = 168,  # 7 days — covers gaps between 6h fetches
     max_price: float = 50.0,
 ) -> Optional[dict]:
     """Query raw_odds for the best (highest) price across all bookmakers
@@ -21,11 +21,14 @@ def get_best_odds_for_outcome(
     Filters:
       - max_age_hours: only consider odds fetched within this many hours
       - max_price: exclude unreasonable prices above this threshold
+      - Only returns pre-game lines (commence_time in the future)
+      - Only returns bettable odds (1.10 - 15.0 range)
 
     Returns:
         dict with "price" and "bookmaker" keys, or None if no data found.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=max_age_hours)
 
     result = (
         db.query(
@@ -37,8 +40,8 @@ def get_best_odds_for_outcome(
             RawOdds.market_key == market_key,
             RawOdds.outcome_name == outcome_name,
             RawOdds.fetched_at >= cutoff,
-            RawOdds.outcome_price <= max_price,
-            RawOdds.outcome_price > 0,
+            RawOdds.commence_time > now,
+            RawOdds.outcome_price.between(1.10, 15.0),
         )
         .group_by(RawOdds.bookmaker_title)
         .order_by(func.max(RawOdds.outcome_price).desc())
@@ -56,7 +59,7 @@ def get_best_odds_for_outcome(
 def get_best_odds_for_value_bet(
     db: Session,
     value_bet: ValueBet,
-    max_age_hours: int = 6,
+    max_age_hours: int = 168,
     max_price: float = 50.0,
 ) -> Optional[dict]:
     """Get the best available odds for a given ValueBet row."""
@@ -76,7 +79,7 @@ def get_consensus_implied_prob(
     db: Session,
     event_id: str,
     market_key: str,
-    max_age_hours: int = 6,
+    max_age_hours: int = 168,
     max_price: float = 50.0,
 ) -> Optional[float]:
     """Compute the median implied probability across all bookmakers
@@ -84,12 +87,14 @@ def get_consensus_implied_prob(
 
     Filters:
       - max_age_hours: only consider odds fetched within this many hours
-      - max_price: exclude unreasonable prices above this threshold
+      - Only pre-game lines (commence_time in the future)
+      - Only bettable odds (1.10 - 15.0 range)
 
     Returns the median implied probability as a percentage (0-100),
     or None if no data found.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=max_age_hours)
 
     rows = (
         db.query(RawOdds.outcome_price, RawOdds.outcome_name)
@@ -97,8 +102,8 @@ def get_consensus_implied_prob(
             RawOdds.id.like(f"{event_id}%"),
             RawOdds.market_key == market_key,
             RawOdds.fetched_at >= cutoff,
-            RawOdds.outcome_price <= max_price,
-            RawOdds.outcome_price > 0,
+            RawOdds.commence_time > now,
+            RawOdds.outcome_price.between(1.10, 15.0),
         )
         .all()
     )
