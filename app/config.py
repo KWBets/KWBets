@@ -1,4 +1,6 @@
+import json
 import os
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
@@ -55,11 +57,29 @@ class Settings(BaseSettings):
     }
 
     # US-only sportsbook allowlist — regulated/licensed books only
-    # Env override: comma-separated list via US_BOOKMAKERS env var
-    us_bookmakers: list[str] = [
-        "draftkings", "fanduel", "betmgm", "betrivers", "espnbet",
-        "ballybet", "hardrockbet", "betparx", "fliff",
-    ]
+    # Env override via US_BOOKMAKERS env var: accepts both JSON arrays
+    # (e.g. ["draftkings","fanduel"]) and comma-separated strings
+    # (e.g. "draftkings,fanduel").
+    # NOTE: str type so pydantic-settings doesn't JSON-decode the env var;
+    # the validator converts to list[str] after pydantic resolves the value.
+    us_bookmakers: str = (
+        "draftkings,fanduel,betmgm,betrivers,"
+        "ballybet,hardrockbet,betparx,fliff"
+    )
+
+    @field_validator("us_bookmakers", mode="after")
+    @classmethod
+    def parse_us_bookmakers(cls, v: str) -> list[str]:
+        """Accept both JSON arrays and comma-separated strings for US_BOOKMAKERS."""
+        v = v.strip()
+        if v.startswith("["):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        return [s.strip() for s in v.split(",") if s.strip()]
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
