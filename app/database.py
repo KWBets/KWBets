@@ -3,8 +3,9 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.config import settings
 import os
 
-# Ensure data directory exists
-os.makedirs("data", exist_ok=True)
+# Ensure data directory exists (SQLite only — Postgres doesn't need it)
+if "sqlite" in settings.database_url:
+    os.makedirs("data", exist_ok=True)
 
 engine = create_engine(
     settings.database_url,

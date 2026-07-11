@@ -1,11 +1,13 @@
 """DoubleDown AI — FastAPI application entry point."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import init_db
+from app.database import init_db, SessionLocal
+from app.models import RawOdds
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import odds as odds_router
 from app.routers import predictions as predictions_router
@@ -19,70 +21,39 @@ async def lifespan(app: FastAPI):
     init_db()
     print("[startup] Database tables created.")
 
-    # Auto-seed if database is empty (first Railway deploy, fresh DB)
-    _auto_bootstrap()
-
     start_scheduler()
     print("[startup] Scheduler started.")
+
+    # If the database is empty, trigger an immediate real odds fetch
+    # (runs as a background task so startup is not blocked)
+    db = SessionLocal()
+    try:
+        count = db.query(RawOdds).count()
+        if count == 0:
+            print("[startup] Empty database detected — kicking off initial odds fetch...")
+            asyncio.create_task(_initial_fetch())
+        else:
+            print(f"[startup] Database has {count} raw odds rows — skipping initial fetch.")
+    except Exception as e:
+        print(f"[startup] Error checking database state: {e}")
+    finally:
+        db.close()
+
     yield
     # Shutdown
     shutdown_scheduler()
     print("[shutdown] Scheduler stopped.")
 
 
-def _auto_bootstrap():
-    """Seed historical data + train model + generate value bets on first boot.
-    
-    On Railway deploy the database starts empty. This auto-detects that
-    and bootstraps the full pipeline so the API returns picks immediately.
-
-    CRITICAL: Never runs if ANY real (non-seed) raw odds exist. Once real
-    odds data has been fetched from The Odds API, seeding is permanently skipped.
-    """
-    from app.database import SessionLocal
-    from app.models import RawOdds
-    from sqlalchemy import text
-
-    db = SessionLocal()
+async def _initial_fetch():
+    """Background task: fetch real odds on first boot when DB is empty."""
+    print("[initial_fetch] Starting real odds fetch from The Odds API...")
     try:
-        # Check if raw odds exists from a live API fetch (non-seed rows)
-        total_raw = db.query(RawOdds).count()
-        seed_raw = db.execute(text("SELECT COUNT(*) FROM raw_odds WHERE id LIKE 'seed_%'")).scalar()
-        real_raw = total_raw - seed_raw
-
-        if real_raw > 0:
-            print(f"[auto_bootstrap] Real odds data exists ({real_raw} rows). Skipping seed permanently.")
-            return
-
-        # Also skip if ProcessedFeatures already populated (safe guard)
-        from app.models import ProcessedFeatures
-        feat_count = db.query(ProcessedFeatures).count()
-        if feat_count > 0:
-            print(f"[auto_bootstrap] Database already populated ({feat_count} features). Skipping seed.")
-            return
-
-        print("[auto_bootstrap] Empty database detected. Running bootstrap pipeline...")
-
-        # 1. Seed historical data (creates ProcessedFeatures + ValueBets + PickOutcomes)
-        import seed_historical
-        seed_historical.seed_inseason_games(db, num_games=350)
-        seed_historical.seed_futures_markets(db, num_entries=250)
-
-        # 2. Train XGBoost model on seeded outcomes
-        from app.train import run_training_pipeline
-        version = run_training_pipeline(db)
-        if version:
-            print(f"[auto_bootstrap] Trained model: {version}")
-
-        # 4. Generate value bets
-        from app.ev import run_ev_pipeline
-        bet_count = run_ev_pipeline(db)
-        print(f"[auto_bootstrap] Bootstrap complete — {bet_count} value bets generated.")
-
+        from app.odds_ingestion import run_odds_fetch
+        result = await run_odds_fetch()
+        print(f"[initial_fetch] Completed — {result}")
     except Exception as e:
-        print(f"[auto_bootstrap] Error during bootstrap: {e}", exc_info=True)
-    finally:
-        db.close()
+        print(f"[initial_fetch] Failed: {e}", exc_info=True)
 
 
 app = FastAPI(

@@ -49,10 +49,7 @@ class RawOdds(Base):
     )
     last_update = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
 
-    __table_args__ = (
-        # Index for fast lookups by sport + market
-        {"sqlite_autoincrement": True},
-    )
+    __table_args__ = ()
 
 
 # ---------------------------------------------------------------------------

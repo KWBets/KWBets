@@ -225,12 +225,11 @@ def build_enhanced_features(db: Session, lookback_days: int = 90) -> int:
     logger.info("Building enhanced features...")
 
     # 1. Load raw odds into a DataFrame for analysis
-    # Exclude: outrights/futures (market_key), Field outcomes, and seed_ synthetic records
+    # Exclude: outrights/futures (market_key) and Field outcomes
     raw_rows = (
         db.query(RawOdds)
         .filter(RawOdds.market_key != "outrights")
         .filter(RawOdds.outcome_name != "Field")
-        .filter(~RawOdds.id.like("seed_%"))
         .all()
     )
     if not raw_rows:
@@ -240,7 +239,7 @@ def build_enhanced_features(db: Session, lookback_days: int = 90) -> int:
     records = []
     for r in raw_rows:
         # Extract event_id from the raw odds ID format.
-        # Format: seed_{sport_key}_{home[:3]}_{away[:3]}_{count}_{bookmaker}_{market}_{outcome_name}
+        # Format: {sport_key}_{home[:3]}_{away[:3]}_{count}_{bookmaker}_{market}_{outcome_name}
         # The event_id is the first 5 underscore-delimited components.
         id_parts = r.id.split("_") if "_" in r.id else [r.id]
         if len(id_parts) >= 5:
