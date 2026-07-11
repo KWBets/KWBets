@@ -23,6 +23,9 @@ async def lifespan(app: FastAPI):
     # Startup
     print(f"[startup] Initializing {settings.app_name}...")
     init_db()
+    db_type = "postgresql" if "postgresql" in settings.database_url else "sqlite"
+    db_host = "Railway Postgres" if "postgresql" in settings.database_url else "local file"
+    print(f"[startup] Connected to database backend: {db_type} at {db_host}")
     print("[startup] Database tables created.")
 
     start_scheduler()

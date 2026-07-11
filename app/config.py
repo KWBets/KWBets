@@ -1,5 +1,5 @@
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,12 +11,15 @@ class Settings(BaseSettings):
     log_level: str = "info"
 
     # Database
-    database_url: str = os.getenv(
-        "DATABASE_URL", "sqlite:///data/doubledown.db"
-    )
+    # NOTE: Plain string default — pydantic-settings resolves DATABASE_URL
+    # from the runtime env (highest priority) or .env file automatically.
+    # Do NOT use os.getenv() here — it pre-resolves at class definition time
+    # and defeats pydantic's env-var-overrides-default behavior.
+    database_url: str = "sqlite:///data/doubledown.db"
 
     # The Odds API
-    odds_api_key: str = os.getenv("ODDS_API_KEY", "")
+    # NOTE: Plain default — pydantic-settings resolves ODDS_API_KEY from env.
+    odds_api_key: str = ""
     odds_api_base_url: str = "https://api.the-odds-api.com/v4"
 
     # Schedule intervals (in hours)
@@ -51,7 +54,13 @@ class Settings(BaseSettings):
         "show_model_ev": False,  # Hide model edge/EV by default
     }
 
-    model_config = {"env_file": ".env", "extra": "ignore"}
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()
+
+# Post-process: Railway Postgres sets DATABASE_URL as postgres:// but
+# SQLAlchemy requires postgresql://. Fix it here so all consumers of
+# settings.database_url see the corrected URL.
+if settings.database_url and settings.database_url.startswith("postgres://"):
+    settings.database_url = settings.database_url.replace("postgres://", "postgresql://", 1)

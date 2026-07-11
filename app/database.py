@@ -3,10 +3,6 @@ from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.config import settings
 import os
 
-# Railway Postgres sets DATABASE_URL as postgres:// but SQLAlchemy needs postgresql://
-if settings.database_url and settings.database_url.startswith("postgres://"):
-    settings.database_url = settings.database_url.replace("postgres://", "postgresql://", 1)
-
 # Ensure data directory exists (SQLite only — Postgres doesn't need it)
 if "sqlite" in settings.database_url:
     os.makedirs("data", exist_ok=True)
