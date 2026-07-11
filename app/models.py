@@ -260,6 +260,12 @@ class PickOutcome(Base):
     value_bet_id = Column(Integer, ForeignKey("value_bets.id"), nullable=False)
     event_id = Column(String, index=True, nullable=False)
 
+    # Prediction-time metadata (for retraining labels)
+    model_probability = Column(Float, nullable=True)  # model's probability at prediction time
+    implied_probability = Column(Float, nullable=True)  # market implied prob at prediction time
+    market_type = Column(String, nullable=True)  # h2h, spreads, totals
+    pick_team = Column(String, nullable=True)  # which team/outcome was picked
+
     # Results
     actual_outcome = Column(String, nullable=False)  # won, lost, push
     home_score = Column(Float, nullable=True)

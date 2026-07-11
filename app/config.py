@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     # Market types
     supported_markets: list[str] = ["h2h", "spreads", "totals"]
 
+    # Feature flags
+    feature_flags: dict = {
+        "show_model_ev": False,  # Hide model edge/EV by default
+    }
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
 

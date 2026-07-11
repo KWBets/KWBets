@@ -35,8 +35,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def count_new_outcomes(db: Session, since: Optional[datetime] = None) -> int:
-    """Count pick_outcomes added since a given timestamp."""
-    query = db.query(func.count(PickOutcome.id))
+    """Count pick_outcomes added since a given timestamp (won/lost only)."""
+    query = db.query(func.count(PickOutcome.id)).filter(
+        PickOutcome.actual_outcome.in_(["won", "lost"])
+    )
     if since:
         query = query.filter(PickOutcome.created_at > since)
     return query.scalar() or 0

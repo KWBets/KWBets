@@ -6,8 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
+from app.config import settings
 from app.database import get_db
 from app.models import ValueBet, ModelPrediction
+from app.odds_utils import get_best_odds_for_value_bet, get_consensus_implied_prob
 from app.schemas import (
     ValueBetResponse,
     PredictionsListResponse,
@@ -22,6 +24,74 @@ from app.schemas import (
 router = APIRouter()
 
 
+def _build_value_bet_response(
+    bet: ValueBet,
+    db: Session,
+    show_ev: bool,
+) -> ValueBetResponse:
+    """Build a ValueBetResponse from a ValueBet ORM row, optionally
+    zeroing out model EV fields and populating best-odds info."""
+    # Look up best available odds across bookmakers
+    best = get_best_odds_for_value_bet(db, bet)
+    consensus = get_consensus_implied_prob(db, bet.event_id, bet.market_type)
+
+    if show_ev:
+        return ValueBetResponse(
+            id=bet.id,
+            event_id=bet.event_id,
+            sport=bet.sport,
+            sport_key=bet.sport_key,
+            home_team=bet.home_team,
+            away_team=bet.away_team,
+            commence_time=bet.commence_time,
+            team=bet.team,
+            market_type=bet.market_type,
+            pick_label=bet.pick_label,
+            odds=bet.odds,
+            model_probability=bet.model_probability,
+            implied_probability=bet.implied_probability,
+            edge_percentage=bet.edge_percentage,
+            expected_value=bet.expected_value,
+            confidence_tier=bet.confidence_tier,
+            confidence_score=bet.confidence_score,
+            reasoning_factors=bet.reasoning_factors,
+            model_version=bet.model_version,
+            best_bookmaker=bet.best_bookmaker,
+            best_odds=best,
+            consensus_implied_prob=consensus,
+            status=bet.status,
+            created_at=bet.created_at,
+        )
+    else:
+        # EV hidden — return basic matchup info only
+        return ValueBetResponse(
+            id=bet.id,
+            event_id=bet.event_id,
+            sport=bet.sport,
+            sport_key=bet.sport_key,
+            home_team=bet.home_team,
+            away_team=bet.away_team,
+            commence_time=bet.commence_time,
+            team=bet.team,
+            market_type=bet.market_type,
+            pick_label=bet.pick_label,
+            odds=bet.odds,
+            model_probability=0.0,
+            implied_probability=0.0,
+            edge_percentage=0.0,
+            expected_value=0.0,
+            confidence_tier="unknown",
+            confidence_score=0.0,
+            reasoning_factors=None,
+            model_version="",
+            best_bookmaker=None,
+            best_odds=best,
+            consensus_implied_prob=consensus,
+            status=bet.status,
+            created_at=bet.created_at,
+        )
+
+
 @router.get("/predictions", response_model=PredictionsListResponse, tags=["Predictions"])
 async def get_predictions(
     sport: Optional[str] = Query(None, description="Filter by sport key"),
@@ -29,13 +99,20 @@ async def get_predictions(
     min_edge: float = Query(0.0, ge=0, description="Minimum edge percentage"),
     limit: int = Query(50, ge=1, le=200),
     sort_by: str = Query("edge_percentage", pattern="^(edge_percentage|expected_value|confidence_score)$"),
+    show_ev: bool = Query(False, description="Show model EV/edge data (requires Pro subscription)"),
     db: Session = Depends(get_db),
 ):
     """Get upcoming value bets, deduplicated by matchup, sorted by EV.
 
     Only returns picks with commence_time within the next 14 days
     (filters out distant futures).
+
+    When show_ev=False (default), model EV fields are zeroed out.
+    Set show_ev=True or env SHOW_EV=true to reveal full model data.
     """
+    # Allow override via environment variable
+    effective_show_ev = show_ev or settings.feature_flags.get("show_model_ev", False)
+
     now = datetime.now(timezone.utc)
     fourteen_days = now + timedelta(days=14)
 
@@ -74,7 +151,10 @@ async def get_predictions(
 
     return PredictionsListResponse(
         count=len(deduped),
-        predictions=[ValueBetResponse.model_validate(r) for r in deduped],
+        predictions=[
+            _build_value_bet_response(bet, db, effective_show_ev)
+            for bet in deduped
+        ],
     )
 
 

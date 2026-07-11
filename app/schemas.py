@@ -82,6 +82,8 @@ class ValueBetResponse(BaseModel):
     reasoning_factors: Optional[dict[str, Any]] = None
     model_version: str
     best_bookmaker: Optional[str] = None
+    best_odds: Optional[dict] = None  # {"price": 2.5, "bookmaker": "DraftKings"}
+    consensus_implied_prob: Optional[float] = None  # median implied prob across books
     status: str
     created_at: datetime
 
