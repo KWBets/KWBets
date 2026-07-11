@@ -138,6 +138,7 @@ class GameOutcome(BaseModel):
     name: str  # team name or "Over"/"Under"/"Draw"
     price: float  # best available decimal odds across all books
     best_odds_bookmaker: Optional[str] = None  # which book offers this price
+    consensus_implied_prob: Optional[float] = None  # median implied prob across books for this outcome
 
 
 class GameEvent(BaseModel):
@@ -148,7 +149,6 @@ class GameEvent(BaseModel):
     away_team: str
     commence_time: datetime
     outcomes: list[GameOutcome]  # one per unique outcome_name for h2h
-    consensus_implied_prob: Optional[float] = None
 
 
 class GamesListResponse(BaseModel):

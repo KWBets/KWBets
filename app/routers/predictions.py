@@ -48,7 +48,7 @@ async def get_games(db: Session = Depends(get_db)):
     rows = (
         db.query(RawOdds)
         .filter(
-            RawOdds.market_key != "outrights",
+            RawOdds.market_key == "h2h",
             RawOdds.outcome_name != "Field",
             RawOdds.commence_time > now,
             RawOdds.outcome_price.between(1.10, 15.0),
@@ -74,25 +74,41 @@ async def get_games(db: Session = Depends(get_db)):
         # Group outcomes by name, find best price per name
         outcome_best: dict[str, tuple[float, str]] = {}
         for r in odds_rows:
-            if r.market_key != "h2h":
-                continue  # only h2h outcomes for now
             name = r.outcome_name
             if name not in outcome_best or r.outcome_price > outcome_best[name][0]:
                 outcome_best[name] = (r.outcome_price, r.bookmaker_title)
+
+        # Compute per-outcome consensus implied probability
+        # by collecting all prices for each outcome_name across bookmakers
+        outcome_prices: dict[str, list[float]] = {}
+        for r in odds_rows:
+            name = r.outcome_name
+            if name not in outcome_prices:
+                outcome_prices[name] = []
+            if r.outcome_price > 0:
+                outcome_prices[name].append(1.0 / r.outcome_price)
+
+        def _median_implied(prices: list[float]) -> float:
+            if not prices:
+                return 0.0
+            prices.sort()
+            mid = len(prices) // 2
+            if len(prices) % 2 == 0:
+                return round(((prices[mid - 1] + prices[mid]) / 2) * 100, 2)
+            return round(prices[mid] * 100, 2)
 
         outcomes = [
             GameOutcome(
                 name=name,
                 price=round(price, 2),
                 best_odds_bookmaker=bookmaker,
+                consensus_implied_prob=_median_implied(outcome_prices.get(name, [])),
             )
             for name, (price, bookmaker) in outcome_best.items()
         ]
 
         if not outcomes:
             continue
-
-        consensus = get_consensus_implied_prob(db, event_hash, "h2h")
 
         games.append(GameEvent(
             event_id=event_hash,
@@ -102,7 +118,6 @@ async def get_games(db: Session = Depends(get_db)):
             away_team=first.away_team,
             commence_time=first.commence_time,
             outcomes=outcomes,
-            consensus_implied_prob=consensus,
         ))
 
     # Sort by commence_time ascending

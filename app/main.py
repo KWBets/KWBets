@@ -1,6 +1,7 @@
 """DoubleDown AI — FastAPI application entry point."""
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +12,9 @@ from app.models import RawOdds
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import odds as odds_router
 from app.routers import predictions as predictions_router
+
+# Suppress SQLAlchemy engine debug logging in production
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 
 @asynccontextmanager
