@@ -304,6 +304,7 @@ async def build_parlay(request: ParlayBuildRequest, db: Session = Depends(get_db
 async def get_props(
     sport: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=200),
+    show_ev: bool = Query(False, description="Show model EV/edge data"),
     db: Session = Depends(get_db),
 ):
     """Get player prop value bets. (Player props require special API access.)"""
@@ -320,21 +321,37 @@ async def get_props(
         query = query.filter(ValueBet.sport_key == sport)
 
     rows = query.all()
+    effective_show_ev = show_ev or settings.feature_flags.get("show_model_ev", False)
     props = []
     for r in rows:
         # Use team as player_name placeholder until real props arrive
-        props.append(PropValueBet(
-            id=r.id,
-            sport=r.sport,
-            player_name=r.team,
-            team=r.home_team if r.team == r.home_team else r.away_team,
-            market_type=r.market_type,
-            line=0.0,
-            odds=r.odds,
-            model_probability=r.model_probability,
-            implied_probability=r.implied_probability,
-            edge_percentage=r.edge_percentage,
-            confidence_tier=r.confidence_tier,
-        ))
+        if effective_show_ev:
+            props.append(PropValueBet(
+                id=r.id,
+                sport=r.sport,
+                player_name=r.team,
+                team=r.home_team if r.team == r.home_team else r.away_team,
+                market_type=r.market_type,
+                line=0.0,
+                odds=r.odds,
+                model_probability=r.model_probability,
+                implied_probability=r.implied_probability,
+                edge_percentage=r.edge_percentage,
+                confidence_tier=r.confidence_tier,
+            ))
+        else:
+            props.append(PropValueBet(
+                id=r.id,
+                sport=r.sport,
+                player_name=r.team,
+                team=r.home_team if r.team == r.home_team else r.away_team,
+                market_type=r.market_type,
+                line=0.0,
+                odds=r.odds,
+                model_probability=0.0,
+                implied_probability=0.0,
+                edge_percentage=0.0,
+                confidence_tier="unknown",
+            ))
 
     return PropsListResponse(count=len(props), props=props)
