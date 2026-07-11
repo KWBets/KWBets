@@ -8,8 +8,12 @@ from sqlalchemy import desc
 
 from app.config import settings
 from app.database import get_db
-from app.models import ValueBet, ModelPrediction
-from app.odds_utils import get_best_odds_for_value_bet, get_consensus_implied_prob
+from app.models import ValueBet, ModelPrediction, RawOdds
+from app.odds_utils import (
+    get_best_odds_for_value_bet,
+    get_consensus_implied_prob,
+    extract_event_hash,
+)
 from app.schemas import (
     ValueBetResponse,
     PredictionsListResponse,
@@ -19,11 +23,97 @@ from app.schemas import (
     ParlayBuildResponse,
     PropsListResponse,
     PropValueBet,
+    GameOutcome,
+    GameEvent,
+    GamesListResponse,
 )
 
 router = APIRouter()
 
 
+# ---------------------------------------------------------------------------
+# GET /games — model-independent upcoming games feed from raw_odds
+# ---------------------------------------------------------------------------
+@router.get("/games", response_model=GamesListResponse, tags=["Games"])
+async def get_games(db: Session = Depends(get_db)):
+    """Get upcoming games with best available odds, computed directly from
+    raw_odds — no ML model required. Returns all future h2h events with
+    odds in the 1.10-15.0 bettable range, sorted by commence_time ascending.
+
+    Each event includes the best price across all bookmakers for each
+    outcome, plus a consensus implied probability.
+    """
+    now = datetime.now(timezone.utc)
+
+    rows = (
+        db.query(RawOdds)
+        .filter(
+            RawOdds.market_key != "outrights",
+            RawOdds.outcome_name != "Field",
+            RawOdds.commence_time > now,
+            RawOdds.outcome_price.between(1.10, 15.0),
+        )
+        .all()
+    )
+
+    if not rows:
+        return GamesListResponse(count=0, games=[])
+
+    # Group rows by event hash (first underscore segment of RawOdds.id)
+    from collections import defaultdict
+    by_event: dict[str, list] = defaultdict(list)
+    for r in rows:
+        event_hash = extract_event_hash(r.id)
+        by_event[event_hash].append(r)
+
+    games = []
+    for event_hash, odds_rows in by_event.items():
+        # Use first row for metadata
+        first = odds_rows[0]
+
+        # Group outcomes by name, find best price per name
+        outcome_best: dict[str, tuple[float, str]] = {}
+        for r in odds_rows:
+            if r.market_key != "h2h":
+                continue  # only h2h outcomes for now
+            name = r.outcome_name
+            if name not in outcome_best or r.outcome_price > outcome_best[name][0]:
+                outcome_best[name] = (r.outcome_price, r.bookmaker_title)
+
+        outcomes = [
+            GameOutcome(
+                name=name,
+                price=round(price, 2),
+                best_odds_bookmaker=bookmaker,
+            )
+            for name, (price, bookmaker) in outcome_best.items()
+        ]
+
+        if not outcomes:
+            continue
+
+        consensus = get_consensus_implied_prob(db, event_hash, "h2h")
+
+        games.append(GameEvent(
+            event_id=event_hash,
+            sport=first.sport,
+            sport_key=first.sport_key,
+            home_team=first.home_team,
+            away_team=first.away_team,
+            commence_time=first.commence_time,
+            outcomes=outcomes,
+            consensus_implied_prob=consensus,
+        ))
+
+    # Sort by commence_time ascending
+    games.sort(key=lambda g: g.commence_time)
+
+    return GamesListResponse(count=len(games), games=games)
+
+
+# ---------------------------------------------------------------------------
+# Value Bet response builder
+# ---------------------------------------------------------------------------
 def _build_value_bet_response(
     bet: ValueBet,
     db: Session,
