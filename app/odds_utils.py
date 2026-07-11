@@ -1,5 +1,6 @@
 """Utility functions for odds comparison and computation."""
 
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -11,13 +12,21 @@ def get_best_odds_for_outcome(
     event_id: str,
     market_key: str,
     outcome_name: str,
+    max_age_hours: int = 6,
+    max_price: float = 50.0,
 ) -> Optional[dict]:
     """Query raw_odds for the best (highest) price across all bookmakers
     for a given event + market + outcome combination.
 
+    Filters:
+      - max_age_hours: only consider odds fetched within this many hours
+      - max_price: exclude unreasonable prices above this threshold
+
     Returns:
         dict with "price" and "bookmaker" keys, or None if no data found.
     """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+
     result = (
         db.query(
             func.max(RawOdds.outcome_price).label("max_price"),
@@ -27,6 +36,9 @@ def get_best_odds_for_outcome(
             RawOdds.id.like(f"{event_id}%"),
             RawOdds.market_key == market_key,
             RawOdds.outcome_name == outcome_name,
+            RawOdds.fetched_at >= cutoff,
+            RawOdds.outcome_price <= max_price,
+            RawOdds.outcome_price > 0,
         )
         .group_by(RawOdds.bookmaker_title)
         .order_by(func.max(RawOdds.outcome_price).desc())
@@ -44,9 +56,10 @@ def get_best_odds_for_outcome(
 def get_best_odds_for_value_bet(
     db: Session,
     value_bet: ValueBet,
+    max_age_hours: int = 6,
+    max_price: float = 50.0,
 ) -> Optional[dict]:
     """Get the best available odds for a given ValueBet row."""
-    # Determine the outcome name from the value bet's team/pick_label
     outcome_name = value_bet.team
 
     return get_best_odds_for_outcome(
@@ -54,6 +67,8 @@ def get_best_odds_for_value_bet(
         event_id=value_bet.event_id,
         market_key=value_bet.market_type,
         outcome_name=outcome_name,
+        max_age_hours=max_age_hours,
+        max_price=max_price,
     )
 
 
@@ -61,19 +76,29 @@ def get_consensus_implied_prob(
     db: Session,
     event_id: str,
     market_key: str,
+    max_age_hours: int = 6,
+    max_price: float = 50.0,
 ) -> Optional[float]:
     """Compute the median implied probability across all bookmakers
     for a given event + market.
 
-    Uses the home_team odds from the first outcome to compute a
-    consensus view. Returns None if no data found.
+    Filters:
+      - max_age_hours: only consider odds fetched within this many hours
+      - max_price: exclude unreasonable prices above this threshold
+
+    Returns the median implied probability as a percentage (0-100),
+    or None if no data found.
     """
-    # Get all unique bookmaker prices for this event+market
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+
     rows = (
         db.query(RawOdds.outcome_price, RawOdds.outcome_name)
         .filter(
             RawOdds.id.like(f"{event_id}%"),
             RawOdds.market_key == market_key,
+            RawOdds.fetched_at >= cutoff,
+            RawOdds.outcome_price <= max_price,
+            RawOdds.outcome_price > 0,
         )
         .all()
     )

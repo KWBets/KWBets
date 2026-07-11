@@ -89,6 +89,9 @@ async def fetch_all_odds(api_key: Optional[str] = None) -> list[dict]:
 
     Excludes futures/outright markets: any sport key containing 'winner',
     'championship', or ending in '_futures' is skipped.
+
+    Quota optimization: only fetches sports with upcoming games (active=True
+    in the /sports endpoint). Dormant sports are skipped to conserve API quota.
     """
     key = api_key or settings.odds_api_key
     if not key or key == "your_odds_api_key_here":
@@ -99,12 +102,35 @@ async def fetch_all_odds(api_key: Optional[str] = None) -> list[dict]:
     import re
     _futures_pattern = re.compile(r"(winner|championship|_futures)", re.IGNORECASE)
 
-    all_events = []
+    # First, fetch active sports list (1 request) to skip dormant sports
     async with httpx.AsyncClient() as client:
+        try:
+            sports_resp = await client.get(
+                f"{settings.odds_api_base_url}/sports",
+                params={"apiKey": key},
+                timeout=15.0,
+            )
+            if sports_resp.status_code == 200:
+                all_sports = sports_resp.json()
+                active_sports = {s["key"] for s in all_sports if s.get("active")}
+                print(f"[odds] Active sports: {len(active_sports)} of {len(all_sports)} total")
+            else:
+                active_sports = set(settings.supported_sports)
+                print(f"[odds] Could not fetch sports list (HTTP {sports_resp.status_code}), fetching all supported sports")
+        except Exception as e:
+            active_sports = set(settings.supported_sports)
+            print(f"[odds] Error fetching sports list: {e}, falling back to all supported sports")
+
+        all_events = []
         for sport in settings.supported_sports:
             # Skip futures/outrights markets
             if _futures_pattern.search(sport):
                 print(f"[odds] Skipping futures market: {sport}")
+                continue
+
+            # Skip dormant sports (no upcoming games)
+            if sport not in active_sports:
+                print(f"[odds] Skipping dormant sport: {sport} (no upcoming events)")
                 continue
 
             events = await fetch_odds_for_sport(client, sport, key)

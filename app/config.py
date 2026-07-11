@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     odds_api_base_url: str = "https://api.the-odds-api.com/v4"
 
     # Schedule intervals (in hours)
-    odds_fetch_interval_hours: int = 1
+    odds_fetch_interval_hours: int = 6  # Changed from 1h to 6h to conserve API quota (190 req remaining)
     model_retrain_interval_hours: int = 24
 
     # Sports supported (The Odds API keys)

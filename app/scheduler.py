@@ -32,10 +32,10 @@ def start_scheduler():
         next_run_time=None,
     )
 
-    # Grading pipeline every 6 hours
+    # Grading pipeline every 12 hours (max 2x/day to conserve API quota)
     scheduler.add_job(
         run_grading,
-        trigger=IntervalTrigger(hours=6),
+        trigger=IntervalTrigger(hours=12),
         id="grading_pipeline",
         name="Grade pending bets via scores API + write PickOutcomes",
         replace_existing=True,
@@ -43,7 +43,7 @@ def start_scheduler():
     )
 
     scheduler.start()
-    print(f"[scheduler] Started APScheduler: hourly odds fetch + full EV chain, daily model retrain ({settings.model_retrain_interval_hours}h interval), grading pipeline (6h interval).")
+    print(f"[scheduler] Started APScheduler: odds fetch every {settings.odds_fetch_interval_hours}h + EV chain, daily retrain ({settings.model_retrain_interval_hours}h), grading (12h).")
 
 
 async def run_daily_retrain():
