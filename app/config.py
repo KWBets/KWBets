@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     # NOTE: str type so pydantic-settings doesn't JSON-decode the env var;
     # the validator converts to list[str] after pydantic resolves the value.
     us_bookmakers: str = (
-        "draftkings,fanduel,betmgm,betrivers,"
+        "draftkings,fanduel,betmgm,betrivers,espnbet,"
         "ballybet,hardrockbet,betparx,fliff"
     )
 
