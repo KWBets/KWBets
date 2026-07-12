@@ -49,5 +49,8 @@ def init_db():
         UserAlert,
         ModelRegistry,
         PickOutcome,
+        User,
+        ReferralEvent,
+        ProCreditUsage,
     )
     Base.metadata.create_all(bind=engine)
