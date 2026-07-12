@@ -63,13 +63,16 @@ class Settings(BaseSettings):
     # NOTE: str type so pydantic-settings doesn't JSON-decode the env var;
     # the validator converts to list[str] after pydantic resolves the value.
     us_bookmakers: str = (
-        "draftkings,fanduel,betmgm,betrivers,espnbet,"
+        "draftkings,fanduel,betmgm,betrivers,"
         "ballybet,hardrockbet,betparx,fliff"
     )
 
     # Health sentinel
     resend_api_key: str = ""
     health_alert_email: str = "support@getdoubledown.com"
+
+    # Admin
+    admin_api_key: str = ""
 
     @field_validator("us_bookmakers", mode="after")
     @classmethod

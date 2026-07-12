@@ -1,29 +1,50 @@
-"""API router for admin endpoints — model progress, calibration, and grading stats."""
+"""API router for admin endpoints — model progress, calibration, and grading stats.
 
-from datetime import datetime, timezone, timedelta, date
-from fastapi import APIRouter, Depends
+Protected by ADMIN_API_KEY header. Returns 503 if no key configured, 403 if
+key is wrong. All queries handle empty data gracefully (zero counts, empty
+arrays, null for dates). Calibration buckets always return all 4 buckets
+even when empty (sample_size=0, predicted_avg=null, actual_win_rate=null).
+"""
+
+from datetime import datetime, timezone, timedelta
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func, text
+from sqlalchemy import func
 
+from app.config import settings
 from app.database import get_db
 from app.models import PickOutcome, ValueBet, ModelRegistry
 
 router = APIRouter()
 
 
+async def verify_admin_key(x_admin_key: str = Header(...)):
+    """Require a valid ADMIN_API_KEY header for all admin endpoints."""
+    if not settings.admin_api_key:
+        raise HTTPException(status_code=503, detail="Admin API not configured")
+    if x_admin_key != settings.admin_api_key:
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+    return True
+
+
 @router.get("/admin/model-progress", tags=["Admin"])
-async def get_model_progress(db: Session = Depends(get_db)):
+async def get_model_progress(
+    db: Session = Depends(get_db),
+    _: bool = Depends(verify_admin_key),
+):
     """Return model training progress, calibration, and grading stats.
 
     Calibration buckets show how well the model's predicted probabilities
     match actual outcomes. The 300-outcome threshold is required before
     model edge scores are shown to users.
+
+    Requires X-Admin-Key header matching ADMIN_API_KEY env var.
     """
     now = datetime.now(timezone.utc)
     today = now.date()
 
     # ------------------------------------------------------------------
-    # 1. Graded outcomes — total count
+    # 1. Graded outcomes — total count (real PickOutcomes, not ModelRegistry)
     # ------------------------------------------------------------------
     graded_total = (
         db.query(func.count(PickOutcome.id))
@@ -94,8 +115,9 @@ async def get_model_progress(db: Session = Depends(get_db)):
 
     # ------------------------------------------------------------------
     # 6. Calibration buckets — model_probability vs actual win rate
+    #    Always returns all 4 buckets even if empty (sample_size=0,
+    #    predicted_avg=null, actual_win_rate=null).
     # ------------------------------------------------------------------
-    # Get all graded PickOutcomes with model_probability
     calibration_rows = (
         db.query(
             PickOutcome.model_probability,
@@ -108,36 +130,38 @@ async def get_model_progress(db: Session = Depends(get_db)):
         .all()
     )
 
-    # Bucket definitions
-    buckets = [
+    bucket_defs = [
         {"label": "50-60%", "min_p": 0.50, "max_p": 0.60},
         {"label": "60-70%", "min_p": 0.60, "max_p": 0.70},
         {"label": "70-80%", "min_p": 0.70, "max_p": 0.80},
-        {"label": "80%+", "min_p": 0.80, "max_p": 1.01},
+        {"label": "80%+",   "min_p": 0.80, "max_p": 1.01},
     ]
 
     calibration = []
-    for bucket in buckets:
+    for b in bucket_defs:
         samples = [
             r for r in calibration_rows
-            if bucket["min_p"] <= r.model_probability < bucket["max_p"]
+            if b["min_p"] <= r.model_probability < b["max_p"]
         ]
-        sample_size = len(samples)
-        if sample_size == 0:
-            continue  # skip empty buckets
-
-        predicted_avg = round(
-            sum(r.model_probability for r in samples) / sample_size, 4
-        )
-        won_count = sum(1 for r in samples if r.actual_outcome == "won")
-        actual_win_rate = round(won_count / sample_size, 4)
-
-        calibration.append({
-            "bucket": bucket["label"],
-            "predicted_avg": predicted_avg,
-            "actual_win_rate": actual_win_rate,
-            "sample_size": sample_size,
-        })
+        n = len(samples)
+        if n == 0:
+            calibration.append({
+                "bucket": b["label"],
+                "predicted_avg": None,
+                "actual_win_rate": None,
+                "sample_size": 0,
+            })
+        else:
+            predicted_avg = round(
+                sum(r.model_probability for r in samples) / n, 4
+            )
+            won = sum(1 for r in samples if r.actual_outcome == "won")
+            calibration.append({
+                "bucket": b["label"],
+                "predicted_avg": predicted_avg,
+                "actual_win_rate": round(won / n, 4),
+                "sample_size": n,
+            })
 
     # ------------------------------------------------------------------
     # 7. Pending — value bets past their commence_time but not yet graded
@@ -160,7 +184,6 @@ async def get_model_progress(db: Session = Depends(get_db)):
     )
     last_run_graded = 0
     if last_run_at is not None:
-        # Count how many PickOutcomes share that exact max timestamp
         last_run_graded = (
             db.query(func.count(PickOutcome.id))
             .filter(PickOutcome.created_at == last_run_at)
@@ -168,7 +191,8 @@ async def get_model_progress(db: Session = Depends(get_db)):
         ) or 0
 
     # ------------------------------------------------------------------
-    # 9. Model — active model registry entry
+    # 9. Model — active model registry entry + retrain_status from
+    #    real PickOutcome labels (not ModelRegistry's stale training_samples)
     # ------------------------------------------------------------------
     active_model = (
         db.query(ModelRegistry)
@@ -177,27 +201,40 @@ async def get_model_progress(db: Session = Depends(get_db)):
         .first()
     )
 
+    # retrain_status is based on real graded PickOutcomes
+    real_labels = graded_total  # PickOutcomes where actual_outcome IN ('won','lost')
+
     model_info = {
         "active_model_version": None,
         "last_retrained_at": None,
-        "training_label_count": 0,
-        "retrain_status": "no model trained yet",
+        "training_label_count": real_labels,
+        "retrain_status": "no model — waiting for 300+ graded outcomes",
     }
     if active_model:
         model_info["active_model_version"] = active_model.model_version
         model_info["last_retrained_at"] = (
             active_model.training_end.isoformat() if active_model.training_end else None
         )
-        model_info["training_label_count"] = active_model.training_samples or 0
-        labels = active_model.training_samples or 0
-        if labels >= 200:
-            model_info["retrain_status"] = f"ready — model active with {labels} labels"
-        elif labels > 0:
+        model_info["training_label_count"] = real_labels
+
+        if real_labels >= 200:
             model_info["retrain_status"] = (
-                f"training — model active with {labels} labels"
+                f"ready — model active with {real_labels} real labels"
+            )
+        elif real_labels > 0:
+            model_info["retrain_status"] = (
+                f"training — model active with {real_labels} real labels"
             )
         else:
-            model_info["retrain_status"] = "initializing — no training data yet"
+            model_info["retrain_status"] = (
+                "waiting for labels — retrains at 200+"
+            )
+    else:
+        # No active model at all
+        remaining_for_threshold = max(0, THRESHOLD - real_labels)
+        model_info["retrain_status"] = (
+            f"no model — waiting for {remaining_for_threshold} more graded outcomes"
+        )
 
     # ------------------------------------------------------------------
     # Assemble response
