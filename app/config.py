@@ -76,6 +76,8 @@ class Settings(BaseSettings):
 
     # Supabase JWT — JWKS URL for asymmetric key verification
     supabase_jwks_url: str = "https://wusxisecvdqnfwdjkzqb.supabase.co/auth/v1/.well-known/jwks.json"
+    # Stripe webhook
+    stripe_webhook_secret: str = ""
 
     @field_validator("us_bookmakers", mode="after")
     @classmethod

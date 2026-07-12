@@ -259,3 +259,43 @@ class AdminReferralStats(BaseModel):
     recent_events: list[AdminReferralEvent]
     top_referrers: list[dict]
     flagged_events: list[AdminReferralEvent]
+
+# ---------------------------------------------------------------------------
+# Creator Program
+# ---------------------------------------------------------------------------
+
+class PromoteCreatorRequest(BaseModel):
+    user_id: Optional[str] = None
+    referral_code: Optional[str] = None
+    payout_rate_cents: Optional[int] = Field(default=250, ge=100, le=10000)
+    payout_method_note: Optional[str] = None
+
+
+class CreatorFunnel(BaseModel):
+    clicks: int = 0
+    signups: int = 0
+    paid_conversions: int = 0
+
+
+class CreatorBalances(BaseModel):
+    pending_cents: int
+    confirmed_cents: int
+    paid_cents: int
+    clawed_back_cents: int
+
+
+class CreatorResponse(BaseModel):
+    user_id: str
+    referral_code: str
+    payout_rate_cents: int
+    payout_method_note: Optional[str] = None
+    funnel: CreatorFunnel
+    balances: CreatorBalances
+
+
+class CreatorListResponse(BaseModel):
+    creators: list[CreatorResponse]
+
+
+class MarkPaidResponse(BaseModel):
+    marked_paid: int

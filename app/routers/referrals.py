@@ -101,21 +101,22 @@ async def claim_referral(
 
     # --- Fraud check 3: Max 10/month for referrer ---
     now = datetime.now(timezone.utc)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    monthly_count = (
-        db.query(func.count(ReferralEvent.id))
-        .filter(
-            ReferralEvent.referrer_id == referrer_id,
-            ReferralEvent.created_at >= month_start,
-            ReferralEvent.status.in_(["activated", "rewarded", "pending"]),
-        )
-        .scalar()
-    ) or 0
-    if monthly_count >= MONTHLY_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail="This referrer has reached the monthly referral limit",
-        )
+    if not referrer.is_creator:
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        monthly_count = (
+            db.query(func.count(ReferralEvent.id))
+            .filter(
+                ReferralEvent.referrer_id == referrer_id,
+                ReferralEvent.created_at >= month_start,
+                ReferralEvent.status.in_(["activated", "rewarded", "pending"]),
+            )
+            .scalar()
+        ) or 0
+        if monthly_count >= MONTHLY_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail="This referrer has reached the monthly referral limit",
+            )
 
     # --- Fraud check 4: Same-domain flag ---
     flag_reason = None
@@ -182,7 +183,7 @@ async def check_activation(
         referrer = db.query(User).filter(User.user_id == event.referrer_id).first()
         referred = db.query(User).filter(User.user_id == event.referred_id).first()
 
-        if referrer:
+        if referrer and not referrer.is_creator:
             referrer.pro_credit_days = (referrer.pro_credit_days or 0) + REWARD_DAYS
         if referred:
             referred.pro_credit_days = (referred.pro_credit_days or 0) + REWARD_DAYS

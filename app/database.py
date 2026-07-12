@@ -52,5 +52,6 @@ def init_db():
         User,
         ReferralEvent,
         ProCreditUsage,
+        CreatorEarning,
     )
     Base.metadata.create_all(bind=engine)

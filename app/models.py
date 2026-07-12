@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from sqlalchemy import (
+    Boolean,
     Column, String, Float, Integer, Boolean, DateTime, Text, JSON, ForeignKey, Enum as SAEnum
 )
 from sqlalchemy.orm import relationship
@@ -290,6 +291,9 @@ class User(Base):
     referral_code = Column(String, unique=True, nullable=False, index=True)
     referred_by = Column(String, ForeignKey("users.user_id"), nullable=True)
     pro_credit_days = Column(Integer, default=0, nullable=False)
+    is_creator = Column(Boolean, default=False, nullable=False)
+    payout_rate_cents = Column(Integer, default=250, nullable=False)  # $2.50 per paid signup
+    payout_method_note = Column(String, nullable=True)  # e.g. "Venmo @handle"
     stripe_customer_id = Column(String, nullable=True)
     email_domain = Column(String, nullable=True)  # for fraud heuristic
     created_at = Column(
@@ -330,3 +334,20 @@ class ProCreditUsage(Base):
     user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
     usage_date = Column(DateTime, nullable=False)
     days_used = Column(Integer, default=1)
+
+
+class CreatorEarning(Base):
+    """Cash earning from a paid referral signup for a creator-tier user."""
+    __tablename__ = "creator_earnings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    creator_id = Column(String, ForeignKey("users.user_id"), nullable=False, index=True)
+    referred_user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    stripe_subscription_id = Column(String, nullable=True)
+    stripe_payment_intent_id = Column(String, nullable=True)
+    stripe_event_id = Column(String, unique=True, nullable=True)  # idempotency key
+    amount_cents = Column(Integer, nullable=False)
+    status = Column(String, nullable=False, default="pending")  # pending/confirmed/clawed_back/paid
+    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    confirmed_at = Column(DateTime, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
