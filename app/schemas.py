@@ -203,3 +203,60 @@ class FetchOddsResponse(BaseModel):
     sports_fetched: list[str]
     total_odds_stored: int
     fetch_duration_seconds: float
+
+
+# ---------------------------------------------------------------------------
+# Referral Program
+# ---------------------------------------------------------------------------
+class ReferralCodeRequest(BaseModel):
+    user_uuid: str = Field(..., description="Client-generated UUID identifying the user")
+
+
+class ReferralCodeResponse(BaseModel):
+    referral_code: str
+    share_link: str
+    is_new: bool
+
+
+class ReferralActivateRequest(BaseModel):
+    referral_code: str = Field(..., min_length=4, max_length=20)
+    user_uuid: str = Field(..., description="UUID of the user activating the code")
+    ip_address: str = Field(default="", description="Client IP for fraud detection")
+
+
+class ReferralActivateResponse(BaseModel):
+    status: str
+    referrer_credit_days: int
+    referred_credit_days: int
+    message: str
+
+
+class ReferralStatsResponse(BaseModel):
+    referral_code: str
+    share_link: str
+    total_referrals: int
+    active_referrals: int
+    pending_referrals: int
+    total_credit_days: int
+
+
+class ReferralDetail(BaseModel):
+    referred_user_uuid: str
+    status: str
+    credit_days: int
+    created_at: datetime
+
+
+class ReferralListResponse(BaseModel):
+    referrals: list[ReferralDetail]
+    total_credits: int
+
+
+class ReferralLeaderboardEntry(BaseModel):
+    referral_code: str
+    total_referrals: int
+    total_credit_days: int
+
+
+class ReferralLeaderboardResponse(BaseModel):
+    leaders: list[ReferralLeaderboardEntry]

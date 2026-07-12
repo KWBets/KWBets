@@ -277,3 +277,73 @@ class PickOutcome(Base):
 
     # Relationship
     value_bet = relationship("ValueBet", backref="outcome")
+
+
+# ---------------------------------------------------------------------------
+# User — minimal user identity for referral tracking
+# ---------------------------------------------------------------------------
+class User(Base):
+    """Minimal user identity, keyed by a client-generated UUID."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_uuid = Column(String, unique=True, nullable=False, index=True)
+    referral_code = Column(String, unique=True, nullable=True, index=True)
+    email = Column(String, nullable=True)
+    ip_address = Column(String, nullable=True)  # last known IP for fraud checks
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    last_active_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    sent_referrals = relationship("Referral", foreign_keys="Referral.referrer_id", backref="referrer")
+    received_referral = relationship("Referral", foreign_keys="Referral.referred_id", backref="referred", uselist=False)
+    credits = relationship("ReferralCredit", backref="user")
+
+
+# ---------------------------------------------------------------------------
+# Referral — tracks referral relationships
+# ---------------------------------------------------------------------------
+class Referral(Base):
+    """Tracks a referral: who referred whom, with fraud checks."""
+    __tablename__ = "referrals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    referrer_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    referred_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)  # one referral per user
+    referral_code_used = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="pending")  # pending, completed, flagged
+
+    # Credit tracking
+    referrer_credited = Column(Boolean, default=False)
+    referred_credited = Column(Boolean, default=False)
+    referrer_credit_days = Column(Integer, nullable=True)
+    referred_credit_days = Column(Integer, nullable=True)
+
+    # Fraud detection
+    referrer_ip = Column(String, nullable=True)
+    referred_ip = Column(String, nullable=True)
+
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    completed_at = Column(DateTime, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# ReferralCredit — tracks free Pro time earned via referrals
+# ---------------------------------------------------------------------------
+class ReferralCredit(Base):
+    """Free Pro subscription days earned through referrals."""
+    __tablename__ = "referral_credits"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    amount_days = Column(Integer, nullable=False)
+    reason = Column(String, nullable=False)  # "referral_sent", "referral_received"
+    related_referral_id = Column(Integer, ForeignKey("referrals.id"), nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
