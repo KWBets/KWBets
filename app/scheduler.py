@@ -11,6 +11,7 @@ def start_scheduler():
     """Initialize and start the APScheduler with all jobs."""
     from app.odds_ingestion import run_odds_fetch
     from app.grade_outcomes import scheduled_grading
+    from app.health_sentinel import run_health_sentinel
 
     # Hourly odds fetch
     scheduler.add_job(
@@ -42,8 +43,28 @@ def start_scheduler():
         next_run_time=None,
     )
 
+    # Health sentinel every 6 hours
+    scheduler.add_job(
+        run_health_sentinel,
+        trigger=IntervalTrigger(hours=6),
+        id="health_sentinel",
+        name="Run health checks every 6h, email on failure",
+        replace_existing=True,
+        next_run_time=None,
+    )
+
+    # Odds API quota check every 6 hours
+    scheduler.add_job(
+        check_odds_api_quota,
+        trigger=IntervalTrigger(hours=6),
+        id="odds_api_quota_check",
+        name="Check Odds API remaining quota",
+        replace_existing=True,
+        next_run_time=None,
+    )
+
     scheduler.start()
-    print(f"[scheduler] Started APScheduler: odds fetch every {settings.odds_fetch_interval_hours}h + EV chain, daily retrain ({settings.model_retrain_interval_hours}h), grading (12h).")
+    print(f"[scheduler] Started APScheduler: odds fetch every {settings.odds_fetch_interval_hours}h + EV chain, daily retrain ({settings.model_retrain_interval_hours}h), grading (12h), health sentinel (6h), quota check (6h).")
 
 
 async def run_daily_retrain():
@@ -68,6 +89,29 @@ async def run_daily_retrain():
         print(f"[scheduler] Retrain error: {e}", exc_info=True)
     finally:
         db.close()
+
+
+async def check_odds_api_quota():
+    """Check Odds API remaining quota and log warnings."""
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{settings.odds_api_base_url}/sports",
+                params={"apiKey": settings.odds_api_key},
+                timeout=10.0,
+            )
+            remaining = int(resp.headers.get("x-requests-remaining", 0))
+            used = int(resp.headers.get("x-requests-used", 0))
+            total = remaining + used
+            pct = (remaining / total * 100) if total > 0 else 0
+            print(f"[quota] Odds API: {remaining}/{total} remaining ({pct:.0f}%)")
+            if pct < 20:
+                print(f"[quota] WARNING: Odds API quota below 20% — renew key soon!")
+            if pct < 10:
+                print(f"[quota] CRITICAL: Odds API quota below 10% — fetch will fail!")
+    except Exception as e:
+        print(f"[quota] Could not check Odds API quota: {e}")
 
 
 async def trigger_odds_fetch_now():
