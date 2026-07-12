@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # Admin
     admin_api_key: str = ""
 
+    # Supabase JWT
+    supabase_jwt_secret: str = ""
+
     @field_validator("us_bookmakers", mode="after")
     @classmethod
     def parse_us_bookmakers(cls, v: str) -> list[str]:
