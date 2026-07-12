@@ -28,8 +28,11 @@ async def lifespan(app: FastAPI):
     print(f"[startup] Connected to database backend: {db_type} at {db_host}")
     print("[startup] Database tables created.")
 
-    start_scheduler()
-    print("[startup] Scheduler started.")
+    try:
+        start_scheduler()
+        print("[startup] Scheduler started.")
+    except Exception as e:
+        print(f"[startup] Scheduler failed to start: {e}", exc_info=True)
 
     # If the database is empty, trigger an immediate real odds fetch
     # (runs as a background task so startup is not blocked)
