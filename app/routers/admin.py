@@ -13,7 +13,8 @@ from sqlalchemy import func
 
 from app.config import settings
 from app.database import get_db
-from app.models import PickOutcome, ValueBet, ModelRegistry
+from app.models import PickOutcome, ValueBet, ModelRegistry, ReferralEvent, User
+from app.schemas import AdminReferralEvent, AdminReferralStats
 
 router = APIRouter()
 
@@ -259,3 +260,89 @@ async def get_model_progress(
         },
         "model": model_info,
     }
+
+
+@router.get("/admin/referrals", response_model=AdminReferralStats, tags=["Admin"])
+async def get_admin_referrals(
+    db: Session = Depends(get_db),
+    _: bool = Depends(verify_admin_key),
+):
+    """Admin view: referral stats, recent events, top referrers, flagged events.
+
+    Requires X-Admin-Key header matching ADMIN_API_KEY env var.
+    """
+    now = datetime.now(timezone.utc)
+
+    # Total referrals
+    total_referrals = (
+        db.query(func.count(ReferralEvent.id)).scalar()
+    ) or 0
+
+    # Active referrers (distinct referrer_ids with >= 1 event)
+    active_referrers = (
+        db.query(func.count(func.distinct(ReferralEvent.referrer_id)))
+        .scalar()
+    ) or 0
+
+    # Recent events (last 20)
+    recent_raw = (
+        db.query(ReferralEvent)
+        .order_by(ReferralEvent.created_at.desc())
+        .limit(20)
+        .all()
+    )
+    recent_events = [
+        AdminReferralEvent(
+            referrer_id=e.referrer_id,
+            referred_id=e.referred_id,
+            status=e.status,
+            flag_reason=e.flag_reason,
+            created_at=e.created_at,
+            rewarded_at=e.rewarded_at,
+        )
+        for e in recent_raw
+    ]
+
+    # Top referrers (top 10 by rewarded count)
+    top_raw = (
+        db.query(
+            ReferralEvent.referrer_id,
+            func.count(ReferralEvent.id).label("cnt"),
+        )
+        .filter(ReferralEvent.status == "rewarded")
+        .group_by(ReferralEvent.referrer_id)
+        .order_by(func.count(ReferralEvent.id).desc())
+        .limit(10)
+        .all()
+    )
+    top_referrers = [
+        {"referrer_id": row.referrer_id, "rewarded_count": row.cnt}
+        for row in top_raw
+    ]
+
+    # Flagged events
+    flagged_raw = (
+        db.query(ReferralEvent)
+        .filter(ReferralEvent.status == "flagged")
+        .order_by(ReferralEvent.created_at.desc())
+        .all()
+    )
+    flagged_events = [
+        AdminReferralEvent(
+            referrer_id=e.referrer_id,
+            referred_id=e.referred_id,
+            status=e.status,
+            flag_reason=e.flag_reason,
+            created_at=e.created_at,
+            rewarded_at=e.rewarded_at,
+        )
+        for e in flagged_raw
+    ]
+
+    return AdminReferralStats(
+        total_referrals=total_referrals,
+        active_referrers=active_referrers,
+        recent_events=recent_events,
+        top_referrers=top_referrers,
+        flagged_events=flagged_events,
+    )
