@@ -134,6 +134,7 @@ async def fetch_all_odds(api_key: Optional[str] = None) -> list[dict]:
                 continue
 
             events = await fetch_odds_for_sport(client, sport, key)
+            print(f"[odds] {sport}: fetched {len(events)} events")
             for ev in events:
                 ev["_sport_key"] = sport
                 ev["_sport_title"] = _sport_title(sport)
@@ -332,8 +333,10 @@ async def run_odds_fetch(api_key: Optional[str] = None) -> dict:
     """
     start = time.time()
     api_key = api_key or settings.odds_api_key
+    print(f"[odds_fetch] Starting fetch cycle at {datetime.now(timezone.utc).isoformat()}...")
 
     if not api_key or api_key == "your_odds_api_key_here":
+        print("[odds_fetch] No valid ODDS_API_KEY configured — skipping")
         return {
             "status": "skipped",
             "message": "No valid ODDS_API_KEY configured. Set it in .env to fetch live odds.",
@@ -343,6 +346,7 @@ async def run_odds_fetch(api_key: Optional[str] = None) -> dict:
         }
 
     events = await fetch_all_odds(api_key)
+    print(f"[odds_fetch] fetch_all_odds returned {len(events)} total events")
 
     db = SessionLocal()
     try:
@@ -378,6 +382,7 @@ async def run_odds_fetch(api_key: Optional[str] = None) -> dict:
 
     elapsed = time.time() - start
     sports_with_data = list(set(e.get("_sport_key", "") for e in events))
+    print(f"[odds_fetch] Cycle complete: {len(sports_with_data)} sports, {stored} odds rows, {features} features, {value_bets} value bets in {elapsed:.1f}s")
 
     return {
         "status": "success",
