@@ -203,3 +203,59 @@ class FetchOddsResponse(BaseModel):
     sports_fetched: list[str]
     total_odds_stored: int
     fetch_duration_seconds: float
+
+
+# ---------------------------------------------------------------------------
+# Referral Program
+# ---------------------------------------------------------------------------
+class ReferralHistoryEntry(BaseModel):
+    referred_email: str
+    status: str
+    created_at: datetime
+
+
+class MyReferralResponse(BaseModel):
+    code: str
+    link: str
+    invited_count: int
+    activated_count: int
+    pro_credit_days: int
+    referral_history: list[ReferralHistoryEntry]
+
+
+class ClaimReferralRequest(BaseModel):
+    referral_code: str = Field(..., min_length=3, max_length=20)
+
+
+class ClaimReferralResponse(BaseModel):
+    status: str
+    message: str
+
+
+class CheckActivationResponse(BaseModel):
+    activated: list[str]
+    total_rewarded: int
+
+
+class EntitlementResponse(BaseModel):
+    is_pro: bool
+    source: str
+    credit_days_remaining: int
+    credit_expires: Optional[datetime] = None
+
+
+class AdminReferralEvent(BaseModel):
+    referrer_id: str
+    referred_id: str
+    status: str
+    flag_reason: Optional[str] = None
+    created_at: datetime
+    rewarded_at: Optional[datetime] = None
+
+
+class AdminReferralStats(BaseModel):
+    total_referrals: int
+    active_referrers: int
+    recent_events: list[AdminReferralEvent]
+    top_referrers: list[dict]
+    flagged_events: list[AdminReferralEvent]

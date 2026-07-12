@@ -277,3 +277,56 @@ class PickOutcome(Base):
 
     # Relationship
     value_bet = relationship("ValueBet", backref="outcome")
+
+
+# ---------------------------------------------------------------------------
+# User — referral program identity
+# ---------------------------------------------------------------------------
+class User(Base):
+    """User identity for referral program — keyed by frontend-provided ID."""
+    __tablename__ = "users"
+
+    user_id = Column(String, primary_key=True)  # identifier from frontend (email or UUID)
+    referral_code = Column(String, unique=True, nullable=False, index=True)
+    referred_by = Column(String, ForeignKey("users.user_id"), nullable=True)
+    pro_credit_days = Column(Integer, default=0, nullable=False)
+    stripe_customer_id = Column(String, nullable=True)
+    email_domain = Column(String, nullable=True)  # for fraud heuristic
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+
+    # Relationships
+    referred_users = relationship("ReferralEvent", foreign_keys="ReferralEvent.referrer_id", backref="referrer")
+    referral_source = relationship("ReferralEvent", foreign_keys="ReferralEvent.referred_id", backref="referred", uselist=False)
+
+
+# ---------------------------------------------------------------------------
+# ReferralEvent — tracks a referral's lifecycle
+# ---------------------------------------------------------------------------
+class ReferralEvent(Base):
+    """Tracks a single referral: who referred whom, status, and rewards."""
+    __tablename__ = "referral_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    referrer_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    referred_id = Column(String, ForeignKey("users.user_id"), nullable=False, unique=True)
+    status = Column(String, nullable=False, default="pending")  # pending/activated/rewarded/flagged
+    flag_reason = Column(String, nullable=True)
+    created_at = Column(
+        DateTime, nullable=False, default=lambda: datetime.now(timezone.utc)
+    )
+    rewarded_at = Column(DateTime, nullable=True)
+
+
+# ---------------------------------------------------------------------------
+# ProCreditUsage — tracks daily burn of pro credit days
+# ---------------------------------------------------------------------------
+class ProCreditUsage(Base):
+    """Tracks daily consumption of free Pro subscription days."""
+    __tablename__ = "pro_credit_usage"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    usage_date = Column(DateTime, nullable=False)
+    days_used = Column(Integer, default=1)
