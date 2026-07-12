@@ -10,6 +10,11 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import SessionLocal
 from app.models import RawOdds, PickOutcome
+def _as_utc(dt: datetime | None) -> datetime | None:
+    """DB timestamps come back timezone-naive; treat them as UTC."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
 
 # ---------------------------------------------------------------------------
 # Module-level state for trend checks
@@ -34,7 +39,7 @@ async def check_odds_freshness(db: Session) -> dict[str, Any]:
             "expected": "fetched < 8h ago",
             "message": "No odds have ever been fetched.",
         }
-    hours_ago = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+    hours_ago = (datetime.now(timezone.utc) - _as_utc(last)).total_seconds() / 3600
     if hours_ago < 8:
         return {
             "check_name": "odds_freshness",
@@ -278,7 +283,7 @@ async def check_grading_pipeline(db: Session) -> dict[str, Any]:
     global _last_pick_outcome_count, _last_pick_outcome_time
     try:
         count = db.query(PickOutcome).count()
-        newest = db.query(func.max(PickOutcome.created_at)).scalar()
+       newest = _as_utc(db.query(func.max(PickOutcome.created_at)).scalar())
 
         if _last_pick_outcome_count is not None and count < _last_pick_outcome_count:
             result = {
@@ -383,4 +388,4 @@ async def run_health_sentinel() -> None:
         else:
             print(f"[health_sentinel] All {len(results)} checks passed.")
     except Exception as e:
-        print(f"[health_sentinel] Orchestrator error: {e}", exc_info=True)
+        print(f"[health_sentinel] Orchestrator error: {e}")
