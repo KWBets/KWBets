@@ -13,3 +13,4 @@ xgboost>=2.0.0
 scikit-learn>=1.5.0
 joblib>=1.4.0
 psycopg2-binary>=2.9.0
+resend>=4.0.0

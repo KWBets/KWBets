@@ -18,6 +18,7 @@ from app.schemas import (
 from app.odds_ingestion import run_odds_fetch
 from app.scheduler import trigger_odds_fetch_now
 from app.config import settings
+from app.health_sentinel import run_health_checks
 
 router = APIRouter()
 
@@ -51,6 +52,23 @@ async def health_check(db: Session = Depends(get_db)):
         model_active=active_model is not None,
         odds_last_fetch=last_odds,
     )
+
+
+@router.get("/health/detailed", tags=["System"])
+async def health_detailed():
+    """Run all 9 health checks and return detailed results as JSON."""
+    from datetime import datetime, timezone
+    results = await run_health_checks()
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "total": len(results),
+            "passing": sum(1 for r in results if r["status"] == "pass"),
+            "warnings": sum(1 for r in results if r["status"] == "warn"),
+            "critical": sum(1 for r in results if r["status"] == "critical"),
+        },
+        "checks": results,
+    }
 
 
 @router.post("/odds/fetch", response_model=FetchOddsResponse, tags=["Odds"])

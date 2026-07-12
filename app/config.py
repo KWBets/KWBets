@@ -67,6 +67,10 @@ class Settings(BaseSettings):
         "ballybet,hardrockbet,betparx,fliff"
     )
 
+    # Health sentinel
+    resend_api_key: str = ""
+    health_alert_email: str = "support@getdoubledown.com"
+
     @field_validator("us_bookmakers", mode="after")
     @classmethod
     def parse_us_bookmakers(cls, v: str) -> list[str]:
