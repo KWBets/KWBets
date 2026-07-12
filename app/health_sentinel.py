@@ -283,7 +283,7 @@ async def check_grading_pipeline(db: Session) -> dict[str, Any]:
     global _last_pick_outcome_count, _last_pick_outcome_time
     try:
         count = db.query(PickOutcome).count()
-       newest = _as_utc(db.query(func.max(PickOutcome.created_at)).scalar())
+        newest = _as_utc(db.query(func.max(PickOutcome.created_at)).scalar())
 
         if _last_pick_outcome_count is not None and count < _last_pick_outcome_count:
             result = {
