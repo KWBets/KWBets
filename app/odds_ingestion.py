@@ -348,6 +348,15 @@ async def run_odds_fetch(api_key: Optional[str] = None) -> dict:
     events = await fetch_all_odds(api_key)
     print(f"[odds_fetch] fetch_all_odds returned {len(events)} total events")
 
+    # Initialize all counters before the try block so they're always defined
+    # (the try/finally has no except — if an exception occurs, the finally
+    # closes the DB, then the exception propagates, and the code below won't
+    # run. But if the try completes, all counters must be available.)
+    stored = 0
+    features = 0
+    predictions = 0
+    value_bets = 0
+
     db = SessionLocal()
     try:
         # Step 1: Store raw odds

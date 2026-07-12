@@ -12,8 +12,6 @@ from app.models import RawOdds
 from app.scheduler import start_scheduler, shutdown_scheduler
 from app.routers import odds as odds_router
 from app.routers import predictions as predictions_router
-# Import health sentinel so its scheduler job and /health/detailed endpoint are registered
-from app import health_sentinel  # noqa: F401
 
 # Suppress SQLAlchemy engine debug logging in production
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
