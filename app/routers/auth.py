@@ -1,9 +1,7 @@
 """Auth dependency — verifies Supabase JWT from Authorization header.
 
-Production: validates Bearer JWT against SUPABASE_JWT_SECRET.
-Development (no secret set): falls back to X-User-Id header with warning log.
-
-Creates users on first touch (create-on-first-touch pattern).
+Uses JWKS endpoint for asymmetric key verification (ES256/RS256).
+Fails closed: no dev fallback, no X-User-Id bypass.
 """
 
 import logging
@@ -11,8 +9,9 @@ import secrets
 import string
 from datetime import datetime, timezone
 
-import jwt as pyjwt  # PyJWT library
+import jwt as pyjwt
 from fastapi import Depends, Header, HTTPException
+from jwt import PyJWKClient
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -20,6 +19,17 @@ from app.database import get_db
 from app.models import User
 
 logger = logging.getLogger(__name__)
+
+# Cached JWKS client (module-level to avoid fetching on every request)
+_jwks_client: PyJWKClient | None = None
+
+
+def _get_jwks_client() -> PyJWKClient:
+    """Get or create the cached PyJWKClient for the Supabase JWKS endpoint."""
+    global _jwks_client
+    if _jwks_client is None:
+        _jwks_client = PyJWKClient(settings.supabase_jwks_url)
+    return _jwks_client
 
 
 def _generate_referral_code() -> str:
@@ -48,73 +58,56 @@ def _create_user(db: Session, user_id: str, email_domain: str | None = None) -> 
 
 async def get_current_user(
     authorization: str = Header(...),
-    x_user_id: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> User:
-    """Verify Supabase JWT and return the user.
+    """Verify Supabase JWT from the Authorization header and return the user.
 
-    Production (SUPABASE_JWT_SECRET is set):
-        - Reads Authorization: Bearer <token>
-        - Validates JWT signature, expiry, audience
-        - Extracts user_id from 'sub' or 'email' claim
-        - Creates user on first touch
+    Uses the Supabase JWKS endpoint to fetch the signing key for asymmetric
+    verification (ES256/RS256). Fails closed on any auth error.
 
-    Development (no secret configured):
-        - Falls back to X-User-Id header with a warning log
-        - Creates user on first touch
+    Creates users on first touch (create-on-first-touch pattern).
     """
-    # ------------------------------------------------------------------
-    # Production path — verify Supabase JWT
-    # ------------------------------------------------------------------
-    if settings.supabase_jwt_secret:
-        if not authorization.startswith("Bearer "):
-            raise HTTPException(
-                status_code=401, detail="Invalid authorization header"
-            )
-        token = authorization[7:]
-        try:
-            payload = pyjwt.decode(
-                token,
-                settings.supabase_jwt_secret,
-                algorithms=["HS256"],
-                audience="authenticated",
-            )
-        except pyjwt.ExpiredSignatureError:
-            raise HTTPException(status_code=401, detail="Token expired")
-        except pyjwt.InvalidTokenError as e:
-            raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
-
-        user_id = payload.get("sub") or payload.get("email")
-        if not user_id:
-            raise HTTPException(
-                status_code=401, detail="Token missing user identity"
-            )
-
-        email = payload.get("email", "")
-        email_domain = email.split("@")[-1] if "@" in email else None
-
-        user = db.query(User).filter(User.user_id == user_id).first()
-        if not user:
-            user = _create_user(db, user_id, email_domain)
-        return user
-
-    # ------------------------------------------------------------------
-    # Development fallback — X-User-Id header (no auth)
-    # ------------------------------------------------------------------
-    logger.warning(
-        "SUPABASE_JWT_SECRET not configured — using dev fallback X-User-Id header"
-    )
-    if not x_user_id or not x_user_id.strip():
+    if not authorization.startswith("Bearer "):
         raise HTTPException(
-            status_code=400,
-            detail="X-User-Id header is required when SUPABASE_JWT_SECRET is not set",
+            status_code=401,
+            detail="Invalid authorization header — expected 'Bearer <token>'",
         )
 
-    user_id = x_user_id.strip()
-    email_domain = user_id.split("@")[-1].lower() if "@" in user_id else None
+    token = authorization[7:]
 
+    try:
+        # Fetch the signing key from the JWKS endpoint
+        jwks_client = _get_jwks_client()
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+
+        payload = pyjwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["ES256", "RS256"],
+            audience="authenticated",
+        )
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except pyjwt.InvalidTokenError as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {e}")
+
+    # Extract user identity
+    user_id = payload.get("sub") or payload.get("email")
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Token does not contain a user identifier (sub or email)",
+        )
+
+    # Extract email for domain-based fraud heuristic
+    email = payload.get("email", "")
+    email_domain = email.split("@")[-1] if "@" in email else None
+
+    # Create-on-first-touch
     user = db.query(User).filter(User.user_id == user_id).first()
-    if user:
-        return user
+    if not user:
+        user = _create_user(db, user_id, email_domain)
 
-    return _create_user(db, user_id, email_domain)
+    return user

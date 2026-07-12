@@ -74,8 +74,8 @@ class Settings(BaseSettings):
     # Admin
     admin_api_key: str = ""
 
-    # Supabase JWT
-    supabase_jwt_secret: str = ""
+    # Supabase JWT — JWKS URL for asymmetric key verification
+    supabase_jwks_url: str = "https://wusxisecvdqnfwdjkzqb.supabase.co/auth/v1/.well-known/jwks.json"
 
     @field_validator("us_bookmakers", mode="after")
     @classmethod
