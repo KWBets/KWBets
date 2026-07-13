@@ -139,7 +139,7 @@ def run_baseline_value_bets(db) -> int:
     # Only include features with fresh odds data (commence_time > now)
     features = (
         db.query(ProcessedFeatures)
-        .filter(ProcessedFeatures.commence_time > now)
+        .filter(ProcessedFeatures.market_type == "h2h", ProcessedFeatures.commence_time > now)
         .all()
     )
     feat_by_event = {f.event_id: f for f in features}
