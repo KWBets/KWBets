@@ -368,7 +368,11 @@ async def run_odds_fetch(api_key: Optional[str] = None) -> dict:
         # Step 3: Run batch predictions through the active ML model
         from app.train import load_active_model, run_batch_predictions
         import uuid
+        from app.baseline import run_baseline_predictions, run_baseline_value_bets
+        baseline_preds = run_baseline_predictions(db)
+        baseline_vbs = 0
         model = load_active_model(db)
+        active = None
         if model is not None:
             from app.models import ModelRegistry
             active = db.query(ModelRegistry).filter(ModelRegistry.is_active == True).first()
