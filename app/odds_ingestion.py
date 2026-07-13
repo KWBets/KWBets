@@ -387,6 +387,10 @@ async def run_odds_fetch(api_key: Optional[str] = None) -> dict:
         # Step 4: Run EV pipeline to generate value bets
         from app.ev import run_ev_pipeline
         value_bets = run_ev_pipeline(db)
+        # Cold-start: no active model — create baseline value bets (trigger is
+        # model absence, NOT value_bets == 0)
+        if model is None or active is None:
+            baseline_vbs = run_baseline_value_bets(db)
 
         # Step 5: Clear old pipeline data before inserting fresh (done inside each function)
         db.commit()
