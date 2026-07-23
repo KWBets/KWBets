@@ -346,3 +346,12 @@ async def get_admin_referrals(
         top_referrers=top_referrers,
         flagged_events=flagged_events,
     )
+
+@router.post("/admin/retrain", tags=["Admin"])
+async def trigger_retrain(
+    _: bool = Depends(verify_admin_key),
+):
+    """Manually trigger the retraining pipeline. Requires X-Admin-Key."""
+    from app.retrain import scheduled_retrain
+    result = scheduled_retrain()
+    return result
