@@ -64,9 +64,25 @@ def start_scheduler():
 
 async def run_daily_retrain():
     """Retrain the ML model on accumulated outcomes, then regenerate all picks."""
+    from app.retrain import scheduled_retrain
     from app.database import SessionLocal
-    from app.train import run_training_pipeline
     from app.ev import run_ev_pipeline
+    import traceback
+
+    print("[scheduler] Daily retrain started: retraining model on new outcomes...")
+    try:
+        result = scheduled_retrain()
+        print(f"[scheduler] Retrain result: {result}")
+
+        db = SessionLocal()
+        try:
+            bets = run_ev_pipeline(db)
+            print(f"[scheduler] Regenerated {bets} value bets")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[scheduler] Retrain error: {e}")
+        traceback.print_exc()
 
     print("[scheduler] Daily retrain started: retraining model on new outcomes...")
 
