@@ -171,7 +171,7 @@ def run_retraining_pipeline(
             from app.train import load_model
             model = load_model(current_active.model_version)
             if model:
-                from app.train import run_batch_predictions
+                
                 import uuid
                 preds = run_batch_predictions(
                     db, model, current_active.model_version, uuid.uuid4().hex
