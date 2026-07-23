@@ -81,7 +81,8 @@ async def run_daily_retrain():
         bets = run_ev_pipeline(db)
         print(f"[scheduler] Regenerated {bets} value bets with model {version}")
     except Exception as e:
-        print(f"[scheduler] Retrain error: {e}", exc_info=True)
+        import traceback
+        print(f"[scheduler] Retrain error: {e}"); traceback.print_exc()
     finally:
         db.close()
 
