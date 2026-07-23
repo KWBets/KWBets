@@ -84,23 +84,6 @@ async def run_daily_retrain():
         print(f"[scheduler] Retrain error: {e}")
         traceback.print_exc()
 
-    print("[scheduler] Daily retrain started: retraining model on new outcomes...")
-
-    db = SessionLocal()
-    try:
-        version = run_training_pipeline(db)
-        if version:
-            print(f"[scheduler] Model retrained: {version}")
-
-        # Regenerate picks with the fresh model
-        from app.models import ModelRegistry, ValueBet
-        bets = run_ev_pipeline(db)
-        print(f"[scheduler] Regenerated {bets} value bets with model {version}")
-    except Exception as e:
-        import traceback
-        print(f"[scheduler] Retrain error: {e}"); traceback.print_exc()
-    finally:
-        db.close()
 
 
 async def trigger_odds_fetch_now():
