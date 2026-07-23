@@ -302,7 +302,8 @@ def log_model_to_registry(
         db.query(ModelRegistry).filter(
             ModelRegistry.is_active == True
         ).update({"is_active": False})
-        _clean_hp = {k: (None if isinstance(v, float) and v != v else v) for k, v in (hyperparameters or {}).items()}
+
+    _clean_hp = {k: (None if isinstance(v, float) and v != v else v) for k, v in (hyperparameters or {}).items()}
 
     entry = ModelRegistry(
         model_name="xgboost_h2h",
