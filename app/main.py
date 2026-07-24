@@ -16,6 +16,7 @@ from app.routers import admin as admin_router
 from app.routers import referrals as referrals_router
 from app.routers import webhooks as webhooks_router
 from app.routers import creators as creators_router
+from app.routers import track_record as track_record_router
 
 # Suppress SQLAlchemy engine debug logging in production
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
@@ -105,6 +106,7 @@ app.include_router(admin_router.router, prefix="/api/v1", tags=["Admin"])
 app.include_router(referrals_router.router, prefix="/api/v1", tags=["Referral"])
 app.include_router(webhooks_router.router, prefix="/api/v1", tags=["Webhooks"])
 app.include_router(creators_router.router, prefix="/api/v1", tags=["Creators"])
+app.include_router(track_record_router.router, prefix="/api/v1", tags=["Public"])
 
 
 @app.get("/", tags=["Root"])
